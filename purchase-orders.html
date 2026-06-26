@@ -48,12 +48,13 @@
               <th>Supplier</th>
               <th>Order Date</th>
               <th>Status</th>
+              <th>Received</th>
               <th class="text-right">Total</th>
               <th></th>
             </tr>
           </thead>
           <tbody id="poTableBody">
-            <tr><td colspan="6" class="empty-state">Loading purchase orders…</td></tr>
+            <tr><td colspan="7" class="empty-state">Loading purchase orders…</td></tr>
           </tbody>
         </table>
       </div>
@@ -191,28 +192,50 @@
     if (error) {
       console.error("Error loading purchase orders:", error);
       document.getElementById("poTableBody").innerHTML =
-        `<tr><td colspan="6" class="empty-state">Could not load purchase orders. ${error.message}</td></tr>`;
+        `<tr><td colspan="7" class="empty-state">Could not load purchase orders. ${error.message}</td></tr>`;
       return;
     }
 
     allPOs = data || [];
 
-    // fetch line totals per PO for the list view
+    // fetch line totals + qty ordered/received per PO for the list view
     for (const po of allPOs) {
       const { data: lines } = await supabaseClient
         .from("purchase_order_lines")
-        .select("line_total")
+        .select("line_total, qty_ordered, qty_received")
         .eq("purchase_order_id", po.id);
+
       po._total = (lines || []).reduce((sum, l) => sum + Number(l.line_total || 0), 0);
+      po._qtyOrdered = (lines || []).reduce((sum, l) => sum + Number(l.qty_ordered || 0), 0);
+      po._qtyReceived = (lines || []).reduce((sum, l) => sum + Number(l.qty_received || 0), 0);
     }
 
     renderPOTable();
   }
 
+  function receivedProgressHtml(po) {
+    // For draft/submitted/cancelled orders, nothing has been or can be
+    // received yet -- show a simple dash rather than "0 / N", which would
+    // read as a problem rather than "not applicable yet".
+    if (["draft", "submitted", "cancelled"].includes(po.status)) {
+      return `<span class="text-faint">—</span>`;
+    }
+
+    const ordered = po._qtyOrdered || 0;
+    const received = po._qtyReceived || 0;
+    const isComplete = received >= ordered && ordered > 0;
+
+    return `
+      <span class="${isComplete ? "text-muted" : ""}" style="font-variant-numeric: tabular-nums;">
+        ${received.toLocaleString()} / ${ordered.toLocaleString()}
+      </span>
+    `;
+  }
+
   function renderPOTable() {
     const body = document.getElementById("poTableBody");
     if (allPOs.length === 0) {
-      body.innerHTML = `<tr><td colspan="6" class="empty-state">No purchase orders yet. Click "New Purchase Order" to create one.</td></tr>`;
+      body.innerHTML = `<tr><td colspan="7" class="empty-state">No purchase orders yet. Click "New Purchase Order" to create one.</td></tr>`;
       return;
     }
 
@@ -224,6 +247,7 @@
           <td>${po.suppliers ? po.suppliers.name : "—"}</td>
           <td>${po.order_date}</td>
           <td>${poStatusBadge(po.status)}</td>
+          <td>${receivedProgressHtml(po)}</td>
           <td class="text-right">ZMW ${Number(po._total || 0).toLocaleString("en-ZM", { minimumFractionDigits: 2 })}</td>
           <td class="text-right">
             <button class="icon-btn" onclick="openViewModal('${po.id}')">View</button>

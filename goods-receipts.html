@@ -48,11 +48,12 @@
               <th>Purchase Order</th>
               <th>Supplier</th>
               <th>Received Date</th>
+              <th>Items Received</th>
               <th></th>
             </tr>
           </thead>
           <tbody id="grnTableBody">
-            <tr><td colspan="5" class="empty-state">Loading goods receipts…</td></tr>
+            <tr><td colspan="6" class="empty-state">Loading goods receipts…</td></tr>
           </tbody>
         </table>
       </div>
@@ -140,18 +141,40 @@
     if (error) {
       console.error("Error loading goods receipts:", error);
       document.getElementById("grnTableBody").innerHTML =
-        `<tr><td colspan="5" class="empty-state">Could not load goods receipts. ${error.message}</td></tr>`;
+        `<tr><td colspan="6" class="empty-state">Could not load goods receipts. ${error.message}</td></tr>`;
       return;
     }
 
     allGRNs = data || [];
+
+    // fetch what was actually received in each GRN, for the summary column
+    for (const g of allGRNs) {
+      const { data: grnLines } = await supabaseClient
+        .from("goods_receipt_lines")
+        .select("qty_received, items(name, unit_of_measure)")
+        .eq("goods_receipt_id", g.id);
+      g._lines = grnLines || [];
+    }
+
     renderGrnTable();
+  }
+
+  function itemsReceivedSummary(g) {
+    if (!g._lines || g._lines.length === 0) return `<span class="text-faint">—</span>`;
+
+    const parts = g._lines.map(
+      (l) => `${Number(l.qty_received).toLocaleString()} ${l.items ? l.items.unit_of_measure : ""} ${l.items ? l.items.name : "—"}`
+    );
+
+    // Show up to 2 lines inline, then "+N more" if there are additional items
+    if (parts.length <= 2) return parts.join(", ");
+    return `${parts.slice(0, 2).join(", ")}, <span class="text-muted">+${parts.length - 2} more</span>`;
   }
 
   function renderGrnTable() {
     const body = document.getElementById("grnTableBody");
     if (allGRNs.length === 0) {
-      body.innerHTML = `<tr><td colspan="5" class="empty-state">No goods receipts recorded yet.</td></tr>`;
+      body.innerHTML = `<tr><td colspan="6" class="empty-state">No goods receipts recorded yet.</td></tr>`;
       return;
     }
 
@@ -164,6 +187,7 @@
           <td>${po ? po.po_number : "—"}</td>
           <td>${po && po.suppliers ? po.suppliers.name : "—"}</td>
           <td>${g.received_date}</td>
+          <td style="font-size:12.5px;">${itemsReceivedSummary(g)}</td>
           <td class="text-right"><button class="icon-btn" onclick="viewGrnNotes('${g.id}')">${g.notes ? "View Notes" : ""}</button></td>
         </tr>`;
       })
