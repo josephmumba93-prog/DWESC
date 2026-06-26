@@ -269,7 +269,7 @@
           <td><strong>${c.name}</strong></td>
           <td>${c.industry || "—"}</td>
           <td>${c.payment_terms || "—"}</td>
-          <td><button class="icon-btn" onclick="openBranchesModal('${c.id}')">${c._branchCount || 0} branch${c._branchCount === 1 ? "" : "es"}</button></td>
+          <td><button class="branch-count-btn" onclick="openBranchesModal('${c.id}')">${c._branchCount || 0} branch${c._branchCount === 1 ? "" : "es"}</button></td>
           <td>${c.active
               ? `<span class="badge badge-success">Active</span>`
               : `<span class="badge badge-danger">Inactive</span>`}</td>

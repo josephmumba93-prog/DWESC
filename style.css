@@ -507,6 +507,29 @@ label {
 .icon-btn:hover { background: var(--bg); color: var(--text); }
 .icon-btn.danger:hover { color: var(--danger); }
 
+.branch-count-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--info-bg);
+  border: 1px solid transparent;
+  cursor: pointer;
+  padding: 5px 10px;
+  border-radius: 100px;
+  color: var(--navy);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.branch-count-btn:hover {
+  background: var(--navy);
+  color: #fff;
+}
+.branch-count-btn::after {
+  content: "→";
+  font-weight: 400;
+  opacity: 0.6;
+}
+
 /* Keyboard focus visibility */
 a:focus-visible, button:focus-visible, .sidebar-link:focus-visible {
   outline: 2px solid var(--red);
