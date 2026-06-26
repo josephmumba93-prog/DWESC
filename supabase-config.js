@@ -14,8 +14,8 @@
 // these values.
 // ============================================================================
 
-const SUPABASE_URL = "https://YOUR-PROJECT-REF.supabase.co"; // <-- REPLACE THIS
-const SUPABASE_ANON_KEY = "YOUR-ANON-PUBLIC-KEY-HERE";         // <-- REPLACE THIS
+const SUPABASE_URL = "https://fueppeslsrvqhjdrwhww.supabase.co"; // <-- REPLACE THIS
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ1ZXBwZXNsc3J2cWhqZHJ3aHd3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI0NjAzMjUsImV4cCI6MjA5ODAzNjMyNX0.UqW5w3gubKj4aX8swTezYGrhXifgFuOAt4ZRzq9AW-o";         // <-- REPLACE THIS
 
 // Single shared client instance used across every page in the app.
 // NOTE: named `supabaseClient`, not `supabase` -- the Supabase JS library
