@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Customers — DW Engineering IPSS</title>
+<link rel="stylesheet" href="style.css" />
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+<div class="app-shell">
+
+  <nav class="sidebar">
+    <div class="sidebar-brand">
+      <img src="dw-logo.png" alt="DW Engineering" />
+      <div class="sidebar-brand-text">DW ENGINEERING<br/>SOLUTION &amp; CONTRACTORS</div>
+    </div>
+    <div class="sidebar-nav" id="sidebarNav"></div>
+    <div class="sidebar-footer">DW Engineering IPSS<br/>v1.0 &middot; Internal Use Only</div>
+  </nav>
+
+  <div class="main-area">
+    <header class="topbar">
+      <div class="topbar-title">Customers</div>
+      <div class="topbar-user">
+        <span class="role-badge" id="roleBadge"></span>
+        <span class="user-name" id="userName"></span>
+        <button class="btn-link" id="signOutBtn">Sign out</button>
+      </div>
+    </header>
+
+    <main class="content">
+
+      <div class="page-toolbar">
+        <div>
+          <h1 class="section-title">Customers</h1>
+          <p class="section-subtitle">Manage customer accounts. Click a customer to view or add branches/sites.</p>
+        </div>
+        <button class="btn btn-primary" id="addCustomerBtn">+ Add Customer</button>
+      </div>
+
+      <div class="search-input-wrap">
+        <input type="text" id="searchInput" placeholder="Search by name or code..." />
+      </div>
+
+      <div class="card" style="padding: 0;">
+        <table>
+          <thead>
+            <tr>
+              <th>Code</th>
+              <th>Name</th>
+              <th>Industry</th>
+              <th>Payment Terms</th>
+              <th>Branches</th>
+              <th>Status</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="customersTableBody">
+            <tr><td colspan="7" class="empty-state">Loading customers…</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<!-- ============================== ADD / EDIT CUSTOMER MODAL ============================== -->
+<div class="modal-overlay" id="customerModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h2 id="modalTitle">Add Customer</h2>
+      <button class="modal-close" id="closeModalBtn">&times;</button>
+    </div>
+    <form id="customerForm">
+      <div class="modal-body">
+        <input type="hidden" id="customerId" />
+
+        <div class="form-row">
+          <div class="field">
+            <label for="customerCode">Customer Code *</label>
+            <input type="text" id="customerCode" required placeholder="e.g. CUS-0001" />
+          </div>
+          <div class="field">
+            <label for="customerName">Company Name *</label>
+            <input type="text" id="customerName" required placeholder="e.g. Zambeef Products PLC" />
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="field">
+            <label for="customerIndustry">Industry</label>
+            <input type="text" id="customerIndustry" placeholder="e.g. Agriculture / Food Processing" />
+          </div>
+          <div class="field">
+            <label for="customerTax">Tax Number (TPIN)</label>
+            <input type="text" id="customerTax" placeholder="e.g. 1234567890" />
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="field">
+            <label for="customerPaymentTerms">Payment Terms</label>
+            <input type="text" id="customerPaymentTerms" placeholder="e.g. 30 days" />
+          </div>
+          <div class="field">
+            <label for="customerCreditLimit">Credit Limit (ZMW)</label>
+            <input type="number" id="customerCreditLimit" min="0" step="0.01" placeholder="Optional" />
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="customerNotes">Notes</label>
+          <textarea id="customerNotes" rows="2" placeholder="Any other useful info..."></textarea>
+        </div>
+
+        <div class="field" id="activeFieldWrap" style="display:none;">
+          <label style="display:flex; align-items:center; gap:8px; font-weight:500;">
+            <input type="checkbox" id="customerActive" style="width:auto;" checked />
+            Active (uncheck to deactivate without deleting)
+          </label>
+        </div>
+
+        <div class="login-error" id="formError" style="display:none;"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" id="cancelModalBtn">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="saveCustomerBtn">Save Customer</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ============================== BRANCHES MODAL ============================== -->
+<div class="modal-overlay" id="branchesModal">
+  <div class="modal-box modal-wide">
+    <div class="modal-header">
+      <h2 id="branchesModalTitle">Branches</h2>
+      <button class="modal-close" id="closeBranchesModalBtn">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="page-toolbar" style="margin-bottom:14px;">
+        <p class="text-muted" style="font-size:13px; margin:0;">All sites/locations for this customer.</p>
+        <button type="button" class="btn btn-secondary btn-sm" id="addBranchBtn">+ Add Branch</button>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Code</th>
+            <th>Branch Name</th>
+            <th>City</th>
+            <th>Contact</th>
+            <th>Primary</th>
+            <th>Status</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="branchesTableBody">
+          <!-- populated by JS -->
+        </tbody>
+      </table>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-secondary" id="closeBranchesBtn">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================== ADD / EDIT BRANCH SUB-MODAL ============================== -->
+<div class="modal-overlay" id="branchFormModal" style="z-index: 110;">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h2 id="branchFormTitle">Add Branch</h2>
+      <button class="modal-close" id="closeBranchFormBtn">&times;</button>
+    </div>
+    <form id="branchForm">
+      <div class="modal-body">
+        <input type="hidden" id="branchId" />
+        <input type="hidden" id="branchCustomerId" />
+
+        <div class="form-row">
+          <div class="field">
+            <label for="branchCode">Branch Code *</label>
+            <input type="text" id="branchCode" required placeholder="e.g. ZBF-LSK-01" />
+          </div>
+          <div class="field">
+            <label for="branchName">Branch Name *</label>
+            <input type="text" id="branchName" required placeholder="e.g. Lusaka Abattoir" />
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="branchAddress">Address</label>
+          <input type="text" id="branchAddress" placeholder="Street, area" />
+        </div>
+
+        <div class="form-row">
+          <div class="field">
+            <label for="branchCity">City</label>
+            <input type="text" id="branchCity" placeholder="e.g. Lusaka" />
+          </div>
+          <div class="field">
+            <label for="branchContact">Contact Person</label>
+            <input type="text" id="branchContact" placeholder="e.g. Site Manager" />
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="field">
+            <label for="branchPhone">Phone</label>
+            <input type="text" id="branchPhone" placeholder="e.g. +260 97X XXX XXX" />
+          </div>
+          <div class="field">
+            <label for="branchEmail">Email</label>
+            <input type="email" id="branchEmail" placeholder="Optional" />
+          </div>
+        </div>
+
+        <div class="field">
+          <label style="display:flex; align-items:center; gap:8px; font-weight:500;">
+            <input type="checkbox" id="branchIsPrimary" style="width:auto;" />
+            This is the customer's primary/head office branch
+          </label>
+        </div>
+
+        <div class="field" id="branchActiveFieldWrap" style="display:none;">
+          <label style="display:flex; align-items:center; gap:8px; font-weight:500;">
+            <input type="checkbox" id="branchActive" style="width:auto;" checked />
+            Active
+          </label>
+        </div>
+
+        <div class="login-error" id="branchFormError" style="display:none;"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" id="cancelBranchFormBtn">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="saveBranchBtn">Save Branch</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="supabase-config.js"></script>
+<script src="auth-guard.js"></script>
+<script src="nav.js"></script>
+<script>
+
+  let allCustomers = [];
+  let currentBranches = []; // branches for whichever customer is open in the Branches modal
+  let activeCustomerId = null;
+
+  // ----------------------------------------------------------------------
+  // Customers list
+  // ----------------------------------------------------------------------
+  function renderCustomersTable(customers) {
+    const body = document.getElementById("customersTableBody");
+
+    if (customers.length === 0) {
+      body.innerHTML = `<tr><td colspan="7" class="empty-state">No customers found.</td></tr>`;
+      return;
+    }
+
+    body.innerHTML = customers
+      .map((c) => `
+        <tr>
+          <td class="font-mono">${c.customer_code}</td>
+          <td><strong>${c.name}</strong></td>
+          <td>${c.industry || "—"}</td>
+          <td>${c.payment_terms || "—"}</td>
+          <td><button class="icon-btn" onclick="openBranchesModal('${c.id}')">${c._branchCount || 0} branch${c._branchCount === 1 ? "" : "es"}</button></td>
+          <td>${c.active
+              ? `<span class="badge badge-success">Active</span>`
+              : `<span class="badge badge-danger">Inactive</span>`}</td>
+          <td class="text-right">
+            <button class="icon-btn" onclick="openEditModal('${c.id}')">Edit</button>
+          </td>
+        </tr>
+      `)
+      .join("");
+  }
+
+  async function loadCustomers() {
+    const { data, error } = await supabaseClient
+      .from("customers")
+      .select("*")
+      .order("name", { ascending: true });
+
+    if (error) {
+      console.error("Error loading customers:", error);
+      document.getElementById("customersTableBody").innerHTML =
+        `<tr><td colspan="7" class="empty-state">Could not load customers. ${error.message}</td></tr>`;
+      return;
+    }
+
+    allCustomers = data || [];
+
+    // fetch branch counts per customer for the list view
+    for (const c of allCustomers) {
+      const { count } = await supabaseClient
+        .from("customer_branches")
+        .select("id", { count: "exact", head: true })
+        .eq("customer_id", c.id);
+      c._branchCount = count || 0;
+    }
+
+    renderCustomersTable(allCustomers);
+  }
+
+  document.getElementById("searchInput").addEventListener("input", (e) => {
+    const term = e.target.value.trim().toLowerCase();
+    const filtered = allCustomers.filter(
+      (c) => c.name.toLowerCase().includes(term) || c.customer_code.toLowerCase().includes(term)
+    );
+    renderCustomersTable(filtered);
+  });
+
+  // ----------------------------------------------------------------------
+  // Add/Edit customer modal
+  // ----------------------------------------------------------------------
+  const customerModal = document.getElementById("customerModal");
+  const customerForm = document.getElementById("customerForm");
+  const customerFormError = document.getElementById("formError");
+
+  function openAddModal() {
+    customerForm.reset();
+    document.getElementById("customerId").value = "";
+    document.getElementById("modalTitle").textContent = "Add Customer";
+    document.getElementById("activeFieldWrap").style.display = "none";
+    customerFormError.style.display = "none";
+    customerModal.classList.add("open");
+  }
+
+  function openEditModal(id) {
+    const c = allCustomers.find((x) => x.id === id);
+    if (!c) return;
+
+    customerForm.reset();
+    document.getElementById("customerId").value = c.id;
+    document.getElementById("customerCode").value = c.customer_code || "";
+    document.getElementById("customerName").value = c.name || "";
+    document.getElementById("customerIndustry").value = c.industry || "";
+    document.getElementById("customerTax").value = c.tax_number || "";
+    document.getElementById("customerPaymentTerms").value = c.payment_terms || "";
+    document.getElementById("customerCreditLimit").value = c.credit_limit || "";
+    document.getElementById("customerNotes").value = c.notes || "";
+    document.getElementById("customerActive").checked = c.active;
+    document.getElementById("activeFieldWrap").style.display = "block";
+
+    document.getElementById("modalTitle").textContent = "Edit Customer";
+    customerFormError.style.display = "none";
+    customerModal.classList.add("open");
+  }
+
+  function closeCustomerModal() {
+    customerModal.classList.remove("open");
+  }
+
+  document.getElementById("addCustomerBtn").addEventListener("click", openAddModal);
+  document.getElementById("closeModalBtn").addEventListener("click", closeCustomerModal);
+  document.getElementById("cancelModalBtn").addEventListener("click", closeCustomerModal);
+  customerModal.addEventListener("click", (e) => {
+    if (e.target === customerModal) closeCustomerModal();
+  });
+
+  customerForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    customerFormError.style.display = "none";
+
+    const id = document.getElementById("customerId").value;
+    const payload = {
+      customer_code: document.getElementById("customerCode").value.trim(),
+      name: document.getElementById("customerName").value.trim(),
+      industry: document.getElementById("customerIndustry").value.trim() || null,
+      tax_number: document.getElementById("customerTax").value.trim() || null,
+      payment_terms: document.getElementById("customerPaymentTerms").value.trim() || null,
+      credit_limit: document.getElementById("customerCreditLimit").value
+        ? parseFloat(document.getElementById("customerCreditLimit").value)
+        : null,
+      notes: document.getElementById("customerNotes").value.trim() || null,
+    };
+
+    const saveBtn = document.getElementById("saveCustomerBtn");
+    saveBtn.disabled = true;
+    saveBtn.textContent = "Saving...";
+
+    let result;
+    if (id) {
+      payload.active = document.getElementById("customerActive").checked;
+      result = await supabaseClient.from("customers").update(payload).eq("id", id);
+    } else {
+      const { data: { user } } = await supabaseClient.auth.getUser();
+      payload.created_by = user.id;
+      result = await supabaseClient.from("customers").insert(payload);
+    }
+
+    saveBtn.disabled = false;
+    saveBtn.textContent = "Save Customer";
+
+    if (result.error) {
+      customerFormError.textContent = result.error.message.includes("duplicate")
+        ? "That customer code is already in use. Please choose a different one."
+        : result.error.message;
+      customerFormError.style.display = "block";
+      return;
+    }
+
+    closeCustomerModal();
+    loadCustomers();
+  });
+
+  // ----------------------------------------------------------------------
+  // Branches modal (list branches for one customer)
+  // ----------------------------------------------------------------------
+  async function openBranchesModal(customerId) {
+    activeCustomerId = customerId;
+    const customer = allCustomers.find((c) => c.id === customerId);
+    document.getElementById("branchesModalTitle").textContent = `Branches — ${customer ? customer.name : ""}`;
+
+    await loadBranches(customerId);
+    document.getElementById("branchesModal").classList.add("open");
+  }
+
+  async function loadBranches(customerId) {
+    const { data, error } = await supabaseClient
+      .from("customer_branches")
+      .select("*")
+      .eq("customer_id", customerId)
+      .order("branch_name");
+
+    if (error) {
+      console.error("Error loading branches:", error);
+      document.getElementById("branchesTableBody").innerHTML =
+        `<tr><td colspan="7" class="empty-state">Could not load branches. ${error.message}</td></tr>`;
+      return;
+    }
+
+    currentBranches = data || [];
+    renderBranchesTable();
+  }
+
+  function renderBranchesTable() {
+    const body = document.getElementById("branchesTableBody");
+    if (currentBranches.length === 0) {
+      body.innerHTML = `<tr><td colspan="7" class="empty-state">No branches yet. Click "Add Branch" to create one.</td></tr>`;
+      return;
+    }
+
+    body.innerHTML = currentBranches
+      .map(
+        (b) => `
+        <tr>
+          <td class="font-mono">${b.branch_code}</td>
+          <td><strong>${b.branch_name}</strong></td>
+          <td>${b.city || "—"}</td>
+          <td>${b.contact_person || "—"}</td>
+          <td>${b.is_primary ? `<span class="badge badge-info">Primary</span>` : ""}</td>
+          <td>${b.active
+              ? `<span class="badge badge-success">Active</span>`
+              : `<span class="badge badge-danger">Inactive</span>`}</td>
+          <td class="text-right"><button class="icon-btn" onclick="openEditBranchModal('${b.id}')">Edit</button></td>
+        </tr>`
+      )
+      .join("");
+  }
+
+  function closeBranchesModal() {
+    document.getElementById("branchesModal").classList.remove("open");
+    loadCustomers(); // refresh branch counts on the main list
+  }
+
+  document.getElementById("closeBranchesModalBtn").addEventListener("click", closeBranchesModal);
+  document.getElementById("closeBranchesBtn").addEventListener("click", closeBranchesModal);
+  document.getElementById("branchesModal").addEventListener("click", (e) => {
+    if (e.target.id === "branchesModal") closeBranchesModal();
+  });
+
+  // ----------------------------------------------------------------------
+  // Add/Edit branch sub-modal
+  // ----------------------------------------------------------------------
+  const branchFormModal = document.getElementById("branchFormModal");
+  const branchForm = document.getElementById("branchForm");
+  const branchFormError = document.getElementById("branchFormError");
+
+  function openAddBranchModal() {
+    branchForm.reset();
+    document.getElementById("branchId").value = "";
+    document.getElementById("branchCustomerId").value = activeCustomerId;
+    document.getElementById("branchFormTitle").textContent = "Add Branch";
+    document.getElementById("branchActiveFieldWrap").style.display = "none";
+    branchFormError.style.display = "none";
+    branchFormModal.classList.add("open");
+  }
+
+  function openEditBranchModal(branchId) {
+    const b = currentBranches.find((x) => x.id === branchId);
+    if (!b) return;
+
+    branchForm.reset();
+    document.getElementById("branchId").value = b.id;
+    document.getElementById("branchCustomerId").value = b.customer_id;
+    document.getElementById("branchCode").value = b.branch_code || "";
+    document.getElementById("branchName").value = b.branch_name || "";
+    document.getElementById("branchAddress").value = b.address || "";
+    document.getElementById("branchCity").value = b.city || "";
+    document.getElementById("branchContact").value = b.contact_person || "";
+    document.getElementById("branchPhone").value = b.phone || "";
+    document.getElementById("branchEmail").value = b.email || "";
+    document.getElementById("branchIsPrimary").checked = b.is_primary;
+    document.getElementById("branchActive").checked = b.active;
+    document.getElementById("branchActiveFieldWrap").style.display = "block";
+
+    document.getElementById("branchFormTitle").textContent = "Edit Branch";
+    branchFormError.style.display = "none";
+    branchFormModal.classList.add("open");
+  }
+
+  function closeBranchFormModal() {
+    branchFormModal.classList.remove("open");
+  }
+
+  document.getElementById("addBranchBtn").addEventListener("click", openAddBranchModal);
+  document.getElementById("closeBranchFormBtn").addEventListener("click", closeBranchFormModal);
+  document.getElementById("cancelBranchFormBtn").addEventListener("click", closeBranchFormModal);
+  branchFormModal.addEventListener("click", (e) => {
+    if (e.target === branchFormModal) closeBranchFormModal();
+  });
+
+  branchForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    branchFormError.style.display = "none";
+
+    const id = document.getElementById("branchId").value;
+    const customerId = document.getElementById("branchCustomerId").value;
+    const payload = {
+      customer_id: customerId,
+      branch_code: document.getElementById("branchCode").value.trim(),
+      branch_name: document.getElementById("branchName").value.trim(),
+      address: document.getElementById("branchAddress").value.trim() || null,
+      city: document.getElementById("branchCity").value.trim() || null,
+      contact_person: document.getElementById("branchContact").value.trim() || null,
+      phone: document.getElementById("branchPhone").value.trim() || null,
+      email: document.getElementById("branchEmail").value.trim() || null,
+      is_primary: document.getElementById("branchIsPrimary").checked,
+    };
+
+    const saveBtn = document.getElementById("saveBranchBtn");
+    saveBtn.disabled = true;
+    saveBtn.textContent = "Saving...";
+
+    let result;
+    if (id) {
+      payload.active = document.getElementById("branchActive").checked;
+      result = await supabaseClient.from("customer_branches").update(payload).eq("id", id);
+    } else {
+      result = await supabaseClient.from("customer_branches").insert(payload);
+    }
+
+    saveBtn.disabled = false;
+    saveBtn.textContent = "Save Branch";
+
+    if (result.error) {
+      branchFormError.textContent = result.error.message.includes("duplicate")
+        ? "That branch code is already used for this customer. Please choose a different one."
+        : result.error.message;
+      branchFormError.style.display = "block";
+      return;
+    }
+
+    closeBranchFormModal();
+    loadBranches(customerId);
+  });
+
+  // ----------------------------------------------------------------------
+  // Page init
+  // ----------------------------------------------------------------------
+  (async () => {
+    const profile = await requireAuth();
+    if (!profile) return;
+    if (!guardRole(profile, ["sales"])) return;
+
+    renderSidebar(profile);
+    renderUserChrome(profile);
+
+    loadCustomers();
+  })();
+
+</script>
+</body>
+</html>
