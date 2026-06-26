@@ -109,8 +109,7 @@
 <script src="nav.js"></script>
 <script>
 
-  const currencyFmt = (n) =>
-    "ZMW " + Number(n || 0).toLocaleString("en-ZM", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  // currencyFmt is defined once in nav.js (loaded above) and reused here.
 
   async function loadDashboardStats() {
     // Inventory value + low stock, from v_current_stock
