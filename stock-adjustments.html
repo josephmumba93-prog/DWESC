@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Stock Adjustments — DW Engineering IPSS</title>
+<link rel="stylesheet" href="style.css" />
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+<div class="app-shell">
+
+  <nav class="sidebar">
+    <div class="sidebar-brand">
+      <img src="dw-logo.png" alt="DW Engineering" />
+      <div class="sidebar-brand-text">DW ENGINEERING<br/>SOLUTION &amp; CONTRACTORS</div>
+    </div>
+    <div class="sidebar-nav" id="sidebarNav"></div>
+    <div class="sidebar-footer">DW Engineering IPSS<br/>v1.0 &middot; Internal Use Only</div>
+  </nav>
+
+  <div class="main-area">
+    <header class="topbar">
+      <div class="topbar-title">Stock Adjustments</div>
+      <div class="topbar-user">
+        <span class="role-badge" id="roleBadge"></span>
+        <span class="user-name" id="userName"></span>
+        <button class="btn-link" id="signOutBtn">Sign out</button>
+      </div>
+    </header>
+
+    <main class="content">
+
+      <div class="page-toolbar">
+        <div>
+          <h1 class="section-title">Stock Adjustments</h1>
+          <p class="section-subtitle">Correct stock levels after a physical count, damage, loss, or other discrepancy.</p>
+        </div>
+        <button class="btn btn-primary" id="addAdjustmentBtn">+ New Adjustment</button>
+      </div>
+
+      <div class="card" style="padding: 0;">
+        <table>
+          <thead>
+            <tr>
+              <th>Adjustment #</th>
+              <th>Reason</th>
+              <th>Date</th>
+              <th>Items Adjusted</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="adjTableBody">
+            <tr><td colspan="5" class="empty-state">Loading stock adjustments…</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<!-- ============================== NEW ADJUSTMENT MODAL ============================== -->
+<div class="modal-overlay" id="adjModal">
+  <div class="modal-box modal-wide">
+    <div class="modal-header">
+      <h2>New Stock Adjustment</h2>
+      <button class="modal-close" id="closeModalBtn">&times;</button>
+    </div>
+    <form id="adjForm">
+      <div class="modal-body">
+
+        <div class="field">
+          <label for="adjReason">Reason *</label>
+          <input type="text" id="adjReason" required placeholder="e.g. Physical count variance, damaged stock, theft" />
+        </div>
+        <div class="field">
+          <label for="adjDate">Adjustment Date *</label>
+          <input type="date" id="adjDate" required />
+        </div>
+
+        <hr style="border:none; border-top:1px solid var(--border); margin: 18px 0;" />
+
+        <label style="margin-bottom:10px;">Items to Adjust</label>
+        <table class="line-items-table">
+          <thead>
+            <tr>
+              <th style="width:30%;">Item</th>
+              <th style="width:18%;">System Qty</th>
+              <th style="width:18%;">Counted Qty</th>
+              <th style="width:18%;">Variance</th>
+              <th style="width:16%;"></th>
+            </tr>
+          </thead>
+          <tbody id="adjLinesBody">
+            <!-- rows added by JS -->
+          </tbody>
+        </table>
+        <button type="button" class="btn btn-secondary btn-sm" id="addLineBtn" style="margin-top:8px;">+ Add Item</button>
+
+        <div class="login-error" id="formError" style="display:none; margin-top:14px;"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" id="cancelModalBtn">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="saveAdjBtn">Save Adjustment</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ============================== VIEW ADJUSTMENT MODAL ============================== -->
+<div class="modal-overlay" id="viewAdjModal">
+  <div class="modal-box modal-wide">
+    <div class="modal-header">
+      <h2 id="viewAdjTitle">Stock Adjustment</h2>
+      <button class="modal-close" id="closeViewModalBtn">&times;</button>
+    </div>
+    <div class="modal-body" id="viewAdjBody"></div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-secondary" onclick="closeViewModal()">Close</button>
+    </div>
+  </div>
+</div>
+
+<script src="supabase-config.js"></script>
+<script src="auth-guard.js"></script>
+<script src="nav.js"></script>
+<script>
+
+  let allAdjustments = [];
+  let allStockItems = []; // items with current qty_on_hand, from v_current_stock
+  let lineCounter = 0;
+
+  // ----------------------------------------------------------------------
+  // Load list of past adjustments
+  // ----------------------------------------------------------------------
+  async function loadAdjustments() {
+    const { data, error } = await supabaseClient
+      .from("stock_adjustments")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("Error loading stock adjustments:", error);
+      document.getElementById("adjTableBody").innerHTML =
+        `<tr><td colspan="5" class="empty-state">Could not load stock adjustments. ${error.message}</td></tr>`;
+      return;
+    }
+
+    allAdjustments = data || [];
+
+    for (const adj of allAdjustments) {
+      const { data: lines } = await supabaseClient
+        .from("stock_adjustment_lines")
+        .select("variance, items(name, unit_of_measure)")
+        .eq("stock_adjustment_id", adj.id);
+      adj._lines = lines || [];
+    }
+
+    renderAdjTable();
+  }
+
+  function adjustmentSummary(adj) {
+    if (!adj._lines || adj._lines.length === 0) return `<span class="text-faint">—</span>`;
+    const parts = adj._lines.map((l) => {
+      const v = Number(l.variance);
+      const sign = v > 0 ? "+" : "";
+      return `${l.items ? l.items.name : "—"} (${sign}${v.toLocaleString()})`;
+    });
+    if (parts.length <= 2) return parts.join(", ");
+    return `${parts.slice(0, 2).join(", ")}, <span class="text-muted">+${parts.length - 2} more</span>`;
+  }
+
+  function renderAdjTable() {
+    const body = document.getElementById("adjTableBody");
+    if (allAdjustments.length === 0) {
+      body.innerHTML = `<tr><td colspan="5" class="empty-state">No stock adjustments recorded yet.</td></tr>`;
+      return;
+    }
+
+    body.innerHTML = allAdjustments
+      .map(
+        (adj) => `
+        <tr>
+          <td class="font-mono">${adj.adjustment_number}</td>
+          <td>${adj.reason}</td>
+          <td>${adj.adjustment_date}</td>
+          <td style="font-size:12.5px;">${adjustmentSummary(adj)}</td>
+          <td class="text-right"><button class="icon-btn" onclick="openViewModal('${adj.id}')">View</button></td>
+        </tr>`
+      )
+      .join("");
+  }
+
+  // ----------------------------------------------------------------------
+  // Reference data: current stock, for the item picker + system qty lookup
+  // ----------------------------------------------------------------------
+  async function loadStockItems() {
+    const { data } = await supabaseClient
+      .from("v_current_stock")
+      .select("item_id, item_code, name, qty_on_hand, unit_of_measure")
+      .order("name");
+    allStockItems = data || [];
+  }
+
+  // ----------------------------------------------------------------------
+  // New adjustment modal: dynamic line items
+  // ----------------------------------------------------------------------
+  function addLineRow() {
+    lineCounter++;
+    const rowId = `adjline_${lineCounter}`;
+    const itemOptions = allStockItems
+      .map((it) => `<option value="${it.item_id}" data-system-qty="${it.qty_on_hand}">${it.name} (${it.item_code})</option>`)
+      .join("");
+
+    const row = document.createElement("tr");
+    row.id = rowId;
+    row.innerHTML = `
+      <td>
+        <select class="adj-item-select" onchange="onAdjItemChange('${rowId}')">
+          <option value="">Select item…</option>
+          ${itemOptions}
+        </select>
+      </td>
+      <td class="adj-system-qty" data-value="0">0</td>
+      <td><input type="number" class="adj-counted-qty" min="0" step="0.01" value="0" oninput="recalcAdjVariance('${rowId}')" /></td>
+      <td class="text-right adj-variance">0</td>
+      <td class="text-right"><button type="button" class="icon-btn danger" onclick="removeAdjLine('${rowId}')">Remove</button></td>
+    `;
+    document.getElementById("adjLinesBody").appendChild(row);
+  }
+
+  function onAdjItemChange(rowId) {
+    const row = document.getElementById(rowId);
+    const select = row.querySelector(".adj-item-select");
+    const selectedOption = select.options[select.selectedIndex];
+    const systemQty = selectedOption ? parseFloat(selectedOption.getAttribute("data-system-qty")) || 0 : 0;
+    row.querySelector(".adj-system-qty").textContent = systemQty.toLocaleString();
+    row.querySelector(".adj-system-qty").setAttribute("data-value", systemQty);
+    row.querySelector(".adj-counted-qty").value = systemQty;
+    recalcAdjVariance(rowId);
+  }
+
+  function recalcAdjVariance(rowId) {
+    const row = document.getElementById(rowId);
+    const systemQty = parseFloat(row.querySelector(".adj-system-qty").getAttribute("data-value")) || 0;
+    const counted = parseFloat(row.querySelector(".adj-counted-qty").value) || 0;
+    const variance = counted - systemQty;
+    const cell = row.querySelector(".adj-variance");
+    cell.textContent = (variance > 0 ? "+" : "") + variance.toLocaleString();
+    cell.style.color = variance > 0 ? "var(--success)" : variance < 0 ? "var(--danger)" : "var(--text-muted)";
+  }
+
+  function removeAdjLine(rowId) {
+    document.getElementById(rowId).remove();
+  }
+
+  async function resetAdjForm() {
+    document.getElementById("adjForm").reset();
+    document.getElementById("adjLinesBody").innerHTML = "";
+    document.getElementById("formError").style.display = "none";
+    document.getElementById("adjDate").valueAsDate = new Date();
+    await loadStockItems();
+    addLineRow();
+  }
+
+  document.getElementById("addAdjustmentBtn").addEventListener("click", async () => {
+    await resetAdjForm();
+    document.getElementById("adjModal").classList.add("open");
+  });
+
+  document.getElementById("addLineBtn").addEventListener("click", addLineRow);
+
+  function closeAdjModal() {
+    document.getElementById("adjModal").classList.remove("open");
+  }
+  document.getElementById("closeModalBtn").addEventListener("click", closeAdjModal);
+  document.getElementById("cancelModalBtn").addEventListener("click", closeAdjModal);
+  document.getElementById("adjModal").addEventListener("click", (e) => {
+    if (e.target.id === "adjModal") closeAdjModal();
+  });
+
+  // ----------------------------------------------------------------------
+  // Submit: create adjustment header + lines + stock_movements
+  // ----------------------------------------------------------------------
+  document.getElementById("adjForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const formError = document.getElementById("formError");
+    formError.style.display = "none";
+
+    const rows = Array.from(document.querySelectorAll("#adjLinesBody tr"));
+    const adjustments = rows
+      .map((row) => {
+        const select = row.querySelector(".adj-item-select");
+        const itemId = select.value;
+        const itemOption = select.options[select.selectedIndex];
+        const systemQty = parseFloat(row.querySelector(".adj-system-qty").getAttribute("data-value")) || 0;
+        const countedQty = parseFloat(row.querySelector(".adj-counted-qty").value) || 0;
+        const itemCostMatch = allStockItems.find((it) => it.item_id === itemId);
+        return { itemId, systemQty, countedQty, variance: countedQty - systemQty };
+      })
+      .filter((r) => r.itemId && r.variance !== 0);
+
+    if (adjustments.length === 0) {
+      formError.textContent = "Please select at least one item with a counted quantity different from the system quantity.";
+      formError.style.display = "block";
+      return;
+    }
+
+    const saveBtn = document.getElementById("saveAdjBtn");
+    saveBtn.disabled = true;
+    saveBtn.textContent = "Saving...";
+
+    const { data: { user } } = await supabaseClient.auth.getUser();
+
+    const { data: adjNumber, error: numError } = await supabaseClient.rpc("next_document_number", { p_prefix: "ADJ" });
+    if (numError) {
+      formError.textContent = "Could not generate an adjustment number: " + numError.message;
+      formError.style.display = "block";
+      saveBtn.disabled = false;
+      saveBtn.textContent = "Save Adjustment";
+      return;
+    }
+
+    const { data: adj, error: adjError } = await supabaseClient
+      .from("stock_adjustments")
+      .insert({
+        adjustment_number: adjNumber,
+        reason: document.getElementById("adjReason").value.trim(),
+        adjustment_date: document.getElementById("adjDate").value,
+        adjusted_by: user.id,
+      })
+      .select()
+      .single();
+
+    if (adjError) {
+      formError.textContent = adjError.message;
+      formError.style.display = "block";
+      saveBtn.disabled = false;
+      saveBtn.textContent = "Save Adjustment";
+      return;
+    }
+
+    // For unit_cost on each adjustment line, look up the item's cost_price
+    const { data: itemCosts } = await supabaseClient
+      .from("items")
+      .select("id, cost_price")
+      .in("id", adjustments.map((a) => a.itemId));
+    const costMap = {};
+    (itemCosts || []).forEach((it) => { costMap[it.id] = it.cost_price; });
+
+    const adjLineInserts = adjustments.map((a) => ({
+      stock_adjustment_id: adj.id,
+      item_id: a.itemId,
+      system_qty: a.systemQty,
+      counted_qty: a.countedQty,
+      unit_cost: costMap[a.itemId] || 0,
+    }));
+
+    const { error: linesError } = await supabaseClient.from("stock_adjustment_lines").insert(adjLineInserts);
+
+    if (linesError) {
+      formError.textContent = "Adjustment header saved but lines failed: " + linesError.message;
+      formError.style.display = "block";
+      saveBtn.disabled = false;
+      saveBtn.textContent = "Save Adjustment";
+      return;
+    }
+
+    // Write to the stock_movements ledger -- one row per adjusted item.
+    // movement_type distinguishes increase vs decrease per the schema's enum.
+    const movementInserts = adjustments.map((a) => ({
+      item_id: a.itemId,
+      movement_type: a.variance > 0 ? "adjustment_increase" : "adjustment_decrease",
+      qty_delta: a.variance, // already signed correctly: positive or negative
+      unit_cost: costMap[a.itemId] || 0,
+      reference_table: "stock_adjustments",
+      reference_id: adj.id,
+      notes: document.getElementById("adjReason").value.trim(),
+      performed_by: user.id,
+    }));
+
+    const { error: stockError } = await supabaseClient.from("stock_movements").insert(movementInserts);
+
+    saveBtn.disabled = false;
+    saveBtn.textContent = "Save Adjustment";
+
+    if (stockError) {
+      formError.textContent = "Adjustment saved but stock ledger update failed: " + stockError.message + ". Please contact an administrator.";
+      formError.style.display = "block";
+      return;
+    }
+
+    closeAdjModal();
+    loadAdjustments();
+  });
+
+  // ----------------------------------------------------------------------
+  // View adjustment modal
+  // ----------------------------------------------------------------------
+  async function openViewModal(adjId) {
+    const adj = allAdjustments.find((a) => a.id === adjId);
+    if (!adj) return;
+
+    document.getElementById("viewAdjTitle").textContent = `Stock Adjustment ${adj.adjustment_number}`;
+
+    const { data: lines } = await supabaseClient
+      .from("stock_adjustment_lines")
+      .select("*, items(name, item_code, unit_of_measure)")
+      .eq("stock_adjustment_id", adjId);
+
+    document.getElementById("viewAdjBody").innerHTML = `
+      <div class="form-row" style="margin-bottom:16px;">
+        <div><div class="text-muted" style="font-size:12px;">Reason</div><strong>${adj.reason}</strong></div>
+        <div><div class="text-muted" style="font-size:12px;">Date</div>${adj.adjustment_date}</div>
+      </div>
+      <table>
+        <thead><tr><th>Item</th><th class="text-right">System Qty</th><th class="text-right">Counted Qty</th><th class="text-right">Variance</th></tr></thead>
+        <tbody>
+          ${(lines || [])
+            .map((l) => {
+              const v = Number(l.variance);
+              const color = v > 0 ? "var(--success)" : v < 0 ? "var(--danger)" : "var(--text-muted)";
+              return `
+              <tr>
+                <td>${l.items ? l.items.name : "—"} <span class="text-faint">(${l.items ? l.items.item_code : ""})</span></td>
+                <td class="text-right">${Number(l.system_qty).toLocaleString()}</td>
+                <td class="text-right">${Number(l.counted_qty).toLocaleString()}</td>
+                <td class="text-right" style="color:${color};">${v > 0 ? "+" : ""}${v.toLocaleString()}</td>
+              </tr>`;
+            })
+            .join("")}
+        </tbody>
+      </table>
+    `;
+
+    document.getElementById("viewAdjModal").classList.add("open");
+  }
+
+  function closeViewModal() {
+    document.getElementById("viewAdjModal").classList.remove("open");
+  }
+  document.getElementById("closeViewModalBtn").addEventListener("click", closeViewModal);
+  document.getElementById("viewAdjModal").addEventListener("click", (e) => {
+    if (e.target.id === "viewAdjModal") closeViewModal();
+  });
+
+  // ----------------------------------------------------------------------
+  // Page init
+  // ----------------------------------------------------------------------
+  (async () => {
+    const profile = await requireAuth();
+    if (!profile) return;
+    if (!guardRole(profile, ["store"])) return;
+
+    renderSidebar(profile);
+    renderUserChrome(profile);
+
+    loadAdjustments();
+  })();
+
+</script>
+</body>
+</html>

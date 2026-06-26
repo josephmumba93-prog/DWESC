@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Stock Levels — DW Engineering IPSS</title>
+<link rel="stylesheet" href="style.css" />
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+<div class="app-shell">
+
+  <nav class="sidebar">
+    <div class="sidebar-brand">
+      <img src="dw-logo.png" alt="DW Engineering" />
+      <div class="sidebar-brand-text">DW ENGINEERING<br/>SOLUTION &amp; CONTRACTORS</div>
+    </div>
+    <div class="sidebar-nav" id="sidebarNav"></div>
+    <div class="sidebar-footer">DW Engineering IPSS<br/>v1.0 &middot; Internal Use Only</div>
+  </nav>
+
+  <div class="main-area">
+    <header class="topbar">
+      <div class="topbar-title">Stock Levels</div>
+      <div class="topbar-user">
+        <span class="role-badge" id="roleBadge"></span>
+        <span class="user-name" id="userName"></span>
+        <button class="btn-link" id="signOutBtn">Sign out</button>
+      </div>
+    </header>
+
+    <main class="content">
+
+      <h1 class="section-title">Stock Levels</h1>
+      <p class="section-subtitle">Live view of what's currently on hand, derived from the stock movement ledger.</p>
+
+      <div class="grid grid-3" style="margin-bottom: 20px;">
+        <div class="stat-card">
+          <div class="stat-label">Total Inventory Value</div>
+          <div class="stat-value" id="statTotalValue">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Items Tracked</div>
+          <div class="stat-value" id="statItemCount">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Low Stock</div>
+          <div class="stat-value" id="statLowStockCount">—</div>
+          <div class="stat-sub">Items at or below reorder level</div>
+        </div>
+      </div>
+
+      <div class="page-toolbar">
+        <div class="search-input-wrap" style="margin-bottom:0;">
+          <input type="text" id="searchInput" placeholder="Search by name or code..." />
+        </div>
+        <label style="display:flex; align-items:center; gap:8px; font-weight:500; font-size:13.5px; white-space:nowrap;">
+          <input type="checkbox" id="lowStockOnlyToggle" style="width:auto;" />
+          Show low stock only
+        </label>
+      </div>
+
+      <div class="card" style="padding: 0;">
+        <table>
+          <thead>
+            <tr>
+              <th>Code</th>
+              <th>Name</th>
+              <th>Type</th>
+              <th class="text-right">On Hand</th>
+              <th class="text-right">Reorder Level</th>
+              <th class="text-right">Stock Value</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="stockTableBody">
+            <tr><td colspan="7" class="empty-state">Loading stock levels…</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<script src="supabase-config.js"></script>
+<script src="auth-guard.js"></script>
+<script src="nav.js"></script>
+<script>
+
+  let allStock = [];
+
+  function renderStockTable(rows) {
+    const body = document.getElementById("stockTableBody");
+
+    if (rows.length === 0) {
+      body.innerHTML = `<tr><td colspan="7" class="empty-state">No matching items.</td></tr>`;
+      return;
+    }
+
+    body.innerHTML = rows
+      .map((r) => {
+        const qty = Number(r.qty_on_hand || 0);
+        const reorder = Number(r.reorder_level || 0);
+        return `
+        <tr style="${r.is_low_stock ? "background: var(--warning-bg);" : ""}">
+          <td class="font-mono">${r.item_code}</td>
+          <td><strong>${r.name}</strong></td>
+          <td>${r.item_type ? r.item_type.replace(/_/g, " ") : "—"}</td>
+          <td class="text-right">${qty.toLocaleString()} ${r.unit_of_measure || ""}</td>
+          <td class="text-right">${reorder.toLocaleString()}</td>
+          <td class="text-right">ZMW ${Number(r.stock_value || 0).toLocaleString("en-ZM", { minimumFractionDigits: 2 })}</td>
+          <td>${r.is_low_stock
+              ? `<span class="badge badge-warning">Low Stock</span>`
+              : `<span class="badge badge-success">OK</span>`}</td>
+        </tr>`;
+      })
+      .join("");
+  }
+
+  function applyFilters() {
+    const term = document.getElementById("searchInput").value.trim().toLowerCase();
+    const lowOnly = document.getElementById("lowStockOnlyToggle").checked;
+
+    let filtered = allStock;
+    if (term) {
+      filtered = filtered.filter(
+        (r) => r.name.toLowerCase().includes(term) || r.item_code.toLowerCase().includes(term)
+      );
+    }
+    if (lowOnly) {
+      filtered = filtered.filter((r) => r.is_low_stock);
+    }
+    renderStockTable(filtered);
+  }
+
+  async function loadStock() {
+    const { data, error } = await supabaseClient
+      .from("v_current_stock")
+      .select("*")
+      .order("name", { ascending: true });
+
+    if (error) {
+      console.error("Error loading stock levels:", error);
+      document.getElementById("stockTableBody").innerHTML =
+        `<tr><td colspan="7" class="empty-state">Could not load stock levels. ${error.message}</td></tr>`;
+      return;
+    }
+
+    allStock = data || [];
+
+    const totalValue = allStock.reduce((sum, r) => sum + Number(r.stock_value || 0), 0);
+    const lowStockCount = allStock.filter((r) => r.is_low_stock).length;
+
+    document.getElementById("statTotalValue").textContent =
+      "ZMW " + totalValue.toLocaleString("en-ZM", { minimumFractionDigits: 2 });
+    document.getElementById("statItemCount").textContent = allStock.length.toLocaleString();
+    document.getElementById("statLowStockCount").textContent = lowStockCount.toLocaleString();
+
+    applyFilters();
+  }
+
+  document.getElementById("searchInput").addEventListener("input", applyFilters);
+  document.getElementById("lowStockOnlyToggle").addEventListener("change", applyFilters);
+
+  // ----------------------------------------------------------------------
+  // Page init
+  // ----------------------------------------------------------------------
+  (async () => {
+    const profile = await requireAuth();
+    if (!profile) return;
+    if (!guardRole(profile, ["store", "procurement", "sales", "technician"])) return;
+
+    renderSidebar(profile);
+    renderUserChrome(profile);
+
+    loadStock();
+  })();
+
+</script>
+</body>
+</html>

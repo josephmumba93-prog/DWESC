@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Items &amp; Parts — DW Engineering IPSS</title>
+<link rel="stylesheet" href="style.css" />
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+<div class="app-shell">
+
+  <nav class="sidebar">
+    <div class="sidebar-brand">
+      <img src="dw-logo.png" alt="DW Engineering" />
+      <div class="sidebar-brand-text">DW ENGINEERING<br/>SOLUTION &amp; CONTRACTORS</div>
+    </div>
+    <div class="sidebar-nav" id="sidebarNav"></div>
+    <div class="sidebar-footer">DW Engineering IPSS<br/>v1.0 &middot; Internal Use Only</div>
+  </nav>
+
+  <div class="main-area">
+    <header class="topbar">
+      <div class="topbar-title">Items &amp; Parts</div>
+      <div class="topbar-user">
+        <span class="role-badge" id="roleBadge"></span>
+        <span class="user-name" id="userName"></span>
+        <button class="btn-link" id="signOutBtn">Sign out</button>
+      </div>
+    </header>
+
+    <main class="content">
+
+      <div class="page-toolbar">
+        <div>
+          <h1 class="section-title">Items &amp; Parts</h1>
+          <p class="section-subtitle">The catalog of products, spare parts, and consumables you stock.</p>
+        </div>
+        <button class="btn btn-primary" id="addItemBtn">+ Add Item</button>
+      </div>
+
+      <div class="search-input-wrap">
+        <input type="text" id="searchInput" placeholder="Search by name or code..." />
+      </div>
+
+      <div class="card" style="padding: 0;">
+        <table>
+          <thead>
+            <tr>
+              <th>Code</th>
+              <th>Name</th>
+              <th>Type</th>
+              <th>Unit</th>
+              <th class="text-right">Cost Price</th>
+              <th class="text-right">Selling Price</th>
+              <th>Reorder Level</th>
+              <th>Status</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="itemsTableBody">
+            <tr><td colspan="9" class="empty-state">Loading items…</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<!-- ============================== ADD / EDIT MODAL ============================== -->
+<div class="modal-overlay" id="itemModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h2 id="modalTitle">Add Item</h2>
+      <button class="modal-close" id="closeModalBtn">&times;</button>
+    </div>
+    <form id="itemForm">
+      <div class="modal-body">
+        <input type="hidden" id="itemId" />
+
+        <div class="form-row">
+          <div class="field">
+            <label for="itemCode">Item Code *</label>
+            <input type="text" id="itemCode" required placeholder="e.g. ITM-0001" />
+          </div>
+          <div class="field">
+            <label for="itemType">Type *</label>
+            <select id="itemType" required>
+              <option value="product">Product (for resale)</option>
+              <option value="spare_part">Spare Part</option>
+              <option value="consumable">Consumable</option>
+              <option value="service">Service (not stock-tracked)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="itemName">Name *</label>
+          <input type="text" id="itemName" required placeholder="e.g. Pressure Transmitter 4-20mA" />
+        </div>
+
+        <div class="field">
+          <label for="itemDescription">Description</label>
+          <textarea id="itemDescription" rows="2" placeholder="Optional details"></textarea>
+        </div>
+
+        <div class="form-row">
+          <div class="field">
+            <label for="unitOfMeasure">Unit of Measure *</label>
+            <input type="text" id="unitOfMeasure" required value="EA" placeholder="e.g. EA, M, L, KG" />
+          </div>
+          <div class="field">
+            <label for="reorderLevel">Reorder Level</label>
+            <input type="number" id="reorderLevel" min="0" step="0.01" value="0" />
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="field">
+            <label for="costPrice">Cost Price (ZMW) *</label>
+            <input type="number" id="costPrice" required min="0" step="0.01" value="0" />
+          </div>
+          <div class="field">
+            <label for="sellingPrice">Selling Price (ZMW)</label>
+            <input type="number" id="sellingPrice" min="0" step="0.01" value="0" />
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="reorderQty">Suggested Reorder Quantity</label>
+          <input type="number" id="reorderQty" min="0" step="0.01" value="0" />
+        </div>
+
+        <div class="field" style="margin-top:6px;">
+          <label style="display:flex; align-items:center; gap:8px; font-weight:500;">
+            <input type="checkbox" id="isStockTracked" style="width:auto;" checked />
+            Track stock levels for this item (uncheck for pure services)
+          </label>
+        </div>
+        <div class="field">
+          <label style="display:flex; align-items:center; gap:8px; font-weight:500;">
+            <input type="checkbox" id="isSellable" style="width:auto;" checked />
+            Sellable to customers (appears on quotations/invoices)
+          </label>
+        </div>
+        <div class="field">
+          <label style="display:flex; align-items:center; gap:8px; font-weight:500;">
+            <input type="checkbox" id="isConsumableInService" style="width:auto;" checked />
+            Can be consumed on a service job card
+          </label>
+        </div>
+
+        <div class="field" id="activeFieldWrap" style="display:none;">
+          <label style="display:flex; align-items:center; gap:8px; font-weight:500;">
+            <input type="checkbox" id="itemActive" style="width:auto;" checked />
+            Active (uncheck to retire without deleting)
+          </label>
+        </div>
+
+        <div class="login-error" id="formError" style="display:none;"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" id="cancelModalBtn">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="saveItemBtn">Save Item</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="supabase-config.js"></script>
+<script src="auth-guard.js"></script>
+<script src="nav.js"></script>
+<script>
+
+  let allItems = [];
+
+  const itemTypeLabel = {
+    product: "Product",
+    spare_part: "Spare Part",
+    consumable: "Consumable",
+    service: "Service",
+  };
+
+  function renderTable(items) {
+    const body = document.getElementById("itemsTableBody");
+
+    if (items.length === 0) {
+      body.innerHTML = `<tr><td colspan="9" class="empty-state">No items found.</td></tr>`;
+      return;
+    }
+
+    body.innerHTML = items
+      .map((it) => `
+        <tr>
+          <td class="font-mono">${it.item_code}</td>
+          <td><strong>${it.name}</strong></td>
+          <td>${itemTypeLabel[it.item_type] || it.item_type}</td>
+          <td>${it.unit_of_measure}</td>
+          <td class="text-right">ZMW ${Number(it.cost_price).toLocaleString("en-ZM", { minimumFractionDigits: 2 })}</td>
+          <td class="text-right">ZMW ${Number(it.selling_price).toLocaleString("en-ZM", { minimumFractionDigits: 2 })}</td>
+          <td>${it.is_stock_tracked ? Number(it.reorder_level).toLocaleString() : "—"}</td>
+          <td>${it.active
+              ? `<span class="badge badge-success">Active</span>`
+              : `<span class="badge badge-danger">Inactive</span>`}</td>
+          <td class="text-right">
+            <button class="icon-btn" onclick="openEditModal('${it.id}')">Edit</button>
+          </td>
+        </tr>
+      `)
+      .join("");
+  }
+
+  async function loadItems() {
+    const { data, error } = await supabaseClient
+      .from("items")
+      .select("*")
+      .order("name", { ascending: true });
+
+    if (error) {
+      console.error("Error loading items:", error);
+      document.getElementById("itemsTableBody").innerHTML =
+        `<tr><td colspan="9" class="empty-state">Could not load items. ${error.message}</td></tr>`;
+      return;
+    }
+
+    allItems = data || [];
+    renderTable(allItems);
+  }
+
+  document.getElementById("searchInput").addEventListener("input", (e) => {
+    const term = e.target.value.trim().toLowerCase();
+    const filtered = allItems.filter(
+      (it) =>
+        it.name.toLowerCase().includes(term) ||
+        it.item_code.toLowerCase().includes(term)
+    );
+    renderTable(filtered);
+  });
+
+  // ----------------------------------------------------------------------
+  // Modal handling
+  // ----------------------------------------------------------------------
+  const modal = document.getElementById("itemModal");
+  const form = document.getElementById("itemForm");
+  const formError = document.getElementById("formError");
+
+  function openAddModal() {
+    form.reset();
+    document.getElementById("itemId").value = "";
+    document.getElementById("unitOfMeasure").value = "EA";
+    document.getElementById("isStockTracked").checked = true;
+    document.getElementById("isSellable").checked = true;
+    document.getElementById("isConsumableInService").checked = true;
+    document.getElementById("modalTitle").textContent = "Add Item";
+    document.getElementById("activeFieldWrap").style.display = "none";
+    formError.style.display = "none";
+    modal.classList.add("open");
+  }
+
+  function openEditModal(id) {
+    const it = allItems.find((x) => x.id === id);
+    if (!it) return;
+
+    form.reset();
+    document.getElementById("itemId").value = it.id;
+    document.getElementById("itemCode").value = it.item_code || "";
+    document.getElementById("itemType").value = it.item_type || "product";
+    document.getElementById("itemName").value = it.name || "";
+    document.getElementById("itemDescription").value = it.description || "";
+    document.getElementById("unitOfMeasure").value = it.unit_of_measure || "EA";
+    document.getElementById("reorderLevel").value = it.reorder_level || 0;
+    document.getElementById("costPrice").value = it.cost_price || 0;
+    document.getElementById("sellingPrice").value = it.selling_price || 0;
+    document.getElementById("reorderQty").value = it.reorder_qty || 0;
+    document.getElementById("isStockTracked").checked = it.is_stock_tracked;
+    document.getElementById("isSellable").checked = it.is_sellable;
+    document.getElementById("isConsumableInService").checked = it.is_consumable_in_service;
+    document.getElementById("itemActive").checked = it.active;
+    document.getElementById("activeFieldWrap").style.display = "block";
+
+    document.getElementById("modalTitle").textContent = "Edit Item";
+    formError.style.display = "none";
+    modal.classList.add("open");
+  }
+
+  function closeModal() {
+    modal.classList.remove("open");
+  }
+
+  document.getElementById("addItemBtn").addEventListener("click", openAddModal);
+  document.getElementById("closeModalBtn").addEventListener("click", closeModal);
+  document.getElementById("cancelModalBtn").addEventListener("click", closeModal);
+  modal.addEventListener("click", (e) => {
+    if (e.target === modal) closeModal();
+  });
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    formError.style.display = "none";
+
+    const id = document.getElementById("itemId").value;
+    const payload = {
+      item_code: document.getElementById("itemCode").value.trim(),
+      item_type: document.getElementById("itemType").value,
+      name: document.getElementById("itemName").value.trim(),
+      description: document.getElementById("itemDescription").value.trim() || null,
+      unit_of_measure: document.getElementById("unitOfMeasure").value.trim() || "EA",
+      reorder_level: parseFloat(document.getElementById("reorderLevel").value) || 0,
+      cost_price: parseFloat(document.getElementById("costPrice").value) || 0,
+      selling_price: parseFloat(document.getElementById("sellingPrice").value) || 0,
+      reorder_qty: parseFloat(document.getElementById("reorderQty").value) || 0,
+      is_stock_tracked: document.getElementById("isStockTracked").checked,
+      is_sellable: document.getElementById("isSellable").checked,
+      is_consumable_in_service: document.getElementById("isConsumableInService").checked,
+    };
+
+    const saveBtn = document.getElementById("saveItemBtn");
+    saveBtn.disabled = true;
+    saveBtn.textContent = "Saving...";
+
+    let result;
+    if (id) {
+      payload.active = document.getElementById("itemActive").checked;
+      result = await supabaseClient.from("items").update(payload).eq("id", id);
+    } else {
+      const { data: { user } } = await supabaseClient.auth.getUser();
+      payload.created_by = user.id;
+      result = await supabaseClient.from("items").insert(payload);
+    }
+
+    saveBtn.disabled = false;
+    saveBtn.textContent = "Save Item";
+
+    if (result.error) {
+      formError.textContent = result.error.message.includes("duplicate")
+        ? "That item code is already in use. Please choose a different one."
+        : result.error.message;
+      formError.style.display = "block";
+      return;
+    }
+
+    closeModal();
+    loadItems();
+  });
+
+  // ----------------------------------------------------------------------
+  // Page init
+  // ----------------------------------------------------------------------
+  (async () => {
+    const profile = await requireAuth();
+    if (!profile) return;
+    if (!guardRole(profile, ["store"])) return;
+
+    renderSidebar(profile);
+    renderUserChrome(profile);
+
+    loadItems();
+  })();
+
+</script>
+</body>
+</html>
