@@ -128,7 +128,7 @@
 
   // If already logged in, skip straight to the dashboard.
   (async () => {
-    const { data: { session } } = await supabase.auth.getSession();
+    const { data: { session } } = await supabaseClient.auth.getSession();
     if (session) {
       window.location.href = "dashboard.html";
     }
@@ -153,7 +153,7 @@
     loginBtn.disabled = true;
     loginBtn.textContent = "Signing in...";
 
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
 
     if (error) {
       loginBtn.disabled = false;
@@ -168,7 +168,7 @@
 
     // Confirm a profile row exists before sending them in (catches the case
     // where an auth user exists but no profile/role was ever set up).
-    const { data: profile, error: profileError } = await supabase
+    const { data: profile, error: profileError } = await supabaseClient
       .from("profiles")
       .select("id, active")
       .eq("id", data.user.id)
@@ -178,7 +178,7 @@
       loginBtn.disabled = false;
       loginBtn.textContent = "Sign in";
       showError("Your account isn't fully set up yet. Please contact your administrator.");
-      await supabase.auth.signOut();
+      await supabaseClient.auth.signOut();
       return;
     }
 
@@ -186,7 +186,7 @@
       loginBtn.disabled = false;
       loginBtn.textContent = "Sign in";
       showError("Your account has been deactivated. Please contact your administrator.");
-      await supabase.auth.signOut();
+      await supabaseClient.auth.signOut();
       return;
     }
 

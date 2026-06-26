@@ -114,7 +114,7 @@
 
   async function loadDashboardStats() {
     // Inventory value + low stock, from v_current_stock
-    const { data: stock, error: stockErr } = await supabase
+    const { data: stock, error: stockErr } = await supabaseClient
       .from("v_current_stock")
       .select("*");
 
@@ -145,21 +145,21 @@
     }
 
     // Outstanding receivables, from v_customer_balances
-    const { data: custBalances } = await supabase.from("v_customer_balances").select("balance_outstanding");
+    const { data: custBalances } = await supabaseClient.from("v_customer_balances").select("balance_outstanding");
     if (custBalances) {
       const totalReceivable = custBalances.reduce((sum, r) => sum + Number(r.balance_outstanding || 0), 0);
       document.getElementById("statReceivables").textContent = currencyFmt(totalReceivable);
     }
 
     // Outstanding payables, from v_supplier_balances
-    const { data: supBalances } = await supabase.from("v_supplier_balances").select("balance_outstanding");
+    const { data: supBalances } = await supabaseClient.from("v_supplier_balances").select("balance_outstanding");
     if (supBalances) {
       const totalPayable = supBalances.reduce((sum, r) => sum + Number(r.balance_outstanding || 0), 0);
       document.getElementById("statPayables").textContent = currencyFmt(totalPayable);
     }
 
     // Revenue this month, from v_monthly_revenue
-    const { data: revenue } = await supabase.from("v_monthly_revenue").select("*");
+    const { data: revenue } = await supabaseClient.from("v_monthly_revenue").select("*");
     if (revenue) {
       const now = new Date();
       const thisMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
@@ -174,7 +174,7 @@
     }
 
     // Top selling items
-    const { data: topItems } = await supabase
+    const { data: topItems } = await supabaseClient
       .from("v_top_selling_items")
       .select("*")
       .order("total_revenue", { ascending: false })

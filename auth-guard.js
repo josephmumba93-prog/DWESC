@@ -12,14 +12,14 @@
  * on success, fetched fresh from the `profiles` table.
  */
 async function requireAuth() {
-  const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+  const { data: { session }, error: sessionError } = await supabaseClient.auth.getSession();
 
   if (sessionError || !session) {
     window.location.href = "login.html";
     return null;
   }
 
-  const { data: profile, error: profileError } = await supabase
+  const { data: profile, error: profileError } = await supabaseClient
     .from("profiles")
     .select("id, full_name, role, phone, active")
     .eq("id", session.user.id)
@@ -27,14 +27,14 @@ async function requireAuth() {
 
   if (profileError || !profile) {
     console.error("Could not load user profile:", profileError);
-    await supabase.auth.signOut();
+    await supabaseClient.auth.signOut();
     window.location.href = "login.html";
     return null;
   }
 
   if (!profile.active) {
     alert("Your account has been deactivated. Please contact your administrator.");
-    await supabase.auth.signOut();
+    await supabaseClient.auth.signOut();
     window.location.href = "login.html";
     return null;
   }
@@ -62,7 +62,7 @@ function guardRole(profile, allowedRoles) {
  * Signs the current user out and returns to the login page.
  */
 async function signOutAndRedirect() {
-  await supabase.auth.signOut();
+  await supabaseClient.auth.signOut();
   window.location.href = "login.html";
 }
 

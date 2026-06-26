@@ -14,11 +14,14 @@
 // these values.
 // ============================================================================
 
-const SUPABASE_URL = "https://fueppeslsrvqhjdrwhww.supabase.co"; // <-- REPLACE THIS
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ1ZXBwZXNsc3J2cWhqZHJ3aHd3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI0NjAzMjUsImV4cCI6MjA5ODAzNjMyNX0.UqW5w3gubKj4aX8swTezYGrhXifgFuOAt4ZRzq9AW-o";         // <-- REPLACE THIS
+const SUPABASE_URL = "https://YOUR-PROJECT-REF.supabase.co"; // <-- REPLACE THIS
+const SUPABASE_ANON_KEY = "YOUR-ANON-PUBLIC-KEY-HERE";         // <-- REPLACE THIS
 
 // Single shared client instance used across every page in the app.
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+// NOTE: named `supabaseClient`, not `supabase` -- the Supabase JS library
+// itself defines a global called `window.supabase`, so naming our own
+// variable `supabase` causes a "already been declared" crash in the browser.
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // ----------------------------------------------------------------------------
 // Role definitions — must match the `user_role` enum in the database schema.
