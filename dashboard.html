@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Dashboard — DW Engineering IPSS</title>
+<link rel="stylesheet" href="assets/style.css" />
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+<div class="app-shell">
+
+  <!-- ============================== SIDEBAR ============================== -->
+  <nav class="sidebar">
+    <div class="sidebar-brand">
+      <img src="assets/dw-logo.png" alt="DW Engineering" />
+      <div class="sidebar-brand-text">DW ENGINEERING<br/>SOLUTION &amp; CONTRACTORS</div>
+    </div>
+
+    <div class="sidebar-nav" id="sidebarNav">
+      <!-- Populated by JS based on role -->
+    </div>
+
+    <div class="sidebar-footer">
+      DW Engineering IPSS<br/>v1.0 &middot; Internal Use Only
+    </div>
+  </nav>
+
+  <!-- ============================== MAIN AREA ============================== -->
+  <div class="main-area">
+    <header class="topbar">
+      <div class="topbar-title">Dashboard</div>
+      <div class="topbar-user">
+        <span class="role-badge" id="roleBadge"></span>
+        <span class="user-name" id="userName"></span>
+        <button class="btn-link" id="signOutBtn">Sign out</button>
+      </div>
+    </header>
+
+    <main class="content">
+
+      <div id="deniedNotice" class="card" style="display:none; border-color: var(--danger); background: var(--danger-bg); margin-bottom: 20px;">
+        <strong style="color: var(--danger);">Access restricted.</strong>
+        <span style="color: var(--text);"> That page isn't available for your role. If you believe this is a mistake, contact your administrator.</span>
+      </div>
+
+      <h1 class="section-title" id="greeting">Welcome back</h1>
+      <p class="section-subtitle">Here's how the business is tracking right now.</p>
+
+      <!-- Top stat cards -->
+      <div class="grid grid-4" id="statGrid">
+        <div class="stat-card">
+          <div class="stat-label">Inventory Value</div>
+          <div class="stat-value" id="statInventoryValue">—</div>
+          <div class="stat-sub" id="statLowStockCount">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Outstanding Receivables</div>
+          <div class="stat-value" id="statReceivables">—</div>
+          <div class="stat-sub">Owed by customers</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Outstanding Payables</div>
+          <div class="stat-value" id="statPayables">—</div>
+          <div class="stat-sub">Owed to suppliers</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Revenue, This Month</div>
+          <div class="stat-value" id="statRevenueThisMonth">—</div>
+          <div class="stat-sub" id="statRevenueBreakdown">—</div>
+        </div>
+      </div>
+
+      <div class="grid grid-2" style="margin-top: 16px;">
+        <div class="card">
+          <div class="section-title" style="font-size:15px;">Low Stock Items</div>
+          <p class="section-subtitle">Items at or below their reorder level.</p>
+          <table>
+            <thead>
+              <tr><th>Item</th><th>On Hand</th><th>Reorder Level</th></tr>
+            </thead>
+            <tbody id="lowStockTableBody">
+              <tr><td colspan="3" style="color: var(--text-faint);">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="card">
+          <div class="section-title" style="font-size:15px;">Top Selling Items</div>
+          <p class="section-subtitle">By revenue, all time.</p>
+          <table>
+            <thead>
+              <tr><th>Item</th><th>Qty Sold</th><th>Revenue</th></tr>
+            </thead>
+            <tbody id="topSellingTableBody">
+              <tr><td colspan="3" style="color: var(--text-faint);">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<script src="assets/supabase-config.js"></script>
+<script src="assets/auth-guard.js"></script>
+<script src="assets/nav.js"></script>
+<script>
+
+  const currencyFmt = (n) =>
+    "ZMW " + Number(n || 0).toLocaleString("en-ZM", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  async function loadDashboardStats() {
+    // Inventory value + low stock, from v_current_stock
+    const { data: stock, error: stockErr } = await supabase
+      .from("v_current_stock")
+      .select("*");
+
+    if (!stockErr && stock) {
+      const totalValue = stock.reduce((sum, row) => sum + Number(row.stock_value || 0), 0);
+      const lowStockItems = stock.filter((row) => row.is_low_stock);
+
+      document.getElementById("statInventoryValue").textContent = currencyFmt(totalValue);
+      document.getElementById("statLowStockCount").textContent =
+        `${lowStockItems.length} item${lowStockItems.length === 1 ? "" : "s"} low on stock`;
+
+      const lowStockBody = document.getElementById("lowStockTableBody");
+      if (lowStockItems.length === 0) {
+        lowStockBody.innerHTML = `<tr><td colspan="3" style="color: var(--text-faint);">No items currently low on stock.</td></tr>`;
+      } else {
+        lowStockBody.innerHTML = lowStockItems
+          .slice(0, 8)
+          .map(
+            (row) => `
+            <tr>
+              <td>${row.name}</td>
+              <td>${Number(row.qty_on_hand).toLocaleString()}</td>
+              <td>${Number(row.reorder_level).toLocaleString()}</td>
+            </tr>`
+          )
+          .join("");
+      }
+    }
+
+    // Outstanding receivables, from v_customer_balances
+    const { data: custBalances } = await supabase.from("v_customer_balances").select("balance_outstanding");
+    if (custBalances) {
+      const totalReceivable = custBalances.reduce((sum, r) => sum + Number(r.balance_outstanding || 0), 0);
+      document.getElementById("statReceivables").textContent = currencyFmt(totalReceivable);
+    }
+
+    // Outstanding payables, from v_supplier_balances
+    const { data: supBalances } = await supabase.from("v_supplier_balances").select("balance_outstanding");
+    if (supBalances) {
+      const totalPayable = supBalances.reduce((sum, r) => sum + Number(r.balance_outstanding || 0), 0);
+      document.getElementById("statPayables").textContent = currencyFmt(totalPayable);
+    }
+
+    // Revenue this month, from v_monthly_revenue
+    const { data: revenue } = await supabase.from("v_monthly_revenue").select("*");
+    if (revenue) {
+      const now = new Date();
+      const thisMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+      const thisMonthRows = revenue.filter((r) => r.month && r.month.startsWith(thisMonthKey));
+      const total = thisMonthRows.reduce((sum, r) => sum + Number(r.total_revenue || 0), 0);
+      const productRow = thisMonthRows.find((r) => r.invoice_type === "product");
+      const serviceRow = thisMonthRows.find((r) => r.invoice_type === "service");
+
+      document.getElementById("statRevenueThisMonth").textContent = currencyFmt(total);
+      document.getElementById("statRevenueBreakdown").textContent =
+        `Product ${currencyFmt(productRow?.total_revenue || 0)} · Service ${currencyFmt(serviceRow?.total_revenue || 0)}`;
+    }
+
+    // Top selling items
+    const { data: topItems } = await supabase
+      .from("v_top_selling_items")
+      .select("*")
+      .order("total_revenue", { ascending: false })
+      .limit(8);
+
+    const topBody = document.getElementById("topSellingTableBody");
+    if (topItems && topItems.length > 0) {
+      topBody.innerHTML = topItems
+        .map(
+          (row) => `
+          <tr>
+            <td>${row.name}</td>
+            <td>${Number(row.total_qty_sold).toLocaleString()}</td>
+            <td>${currencyFmt(row.total_revenue)}</td>
+          </tr>`
+        )
+        .join("");
+    } else {
+      topBody.innerHTML = `<tr><td colspan="3" style="color: var(--text-faint);">No sales recorded yet.</td></tr>`;
+    }
+  }
+
+  (async () => {
+    const profile = await requireAuth();
+    if (!profile) return;
+
+    renderSidebar(profile);
+    renderUserChrome(profile);
+    document.getElementById("greeting").textContent = `Welcome back, ${profile.full_name.split(" ")[0]}`;
+
+    if (new URLSearchParams(window.location.search).get("denied")) {
+      document.getElementById("deniedNotice").style.display = "block";
+    }
+
+    loadDashboardStats();
+  })();
+
+</script>
+</body>
+</html>
