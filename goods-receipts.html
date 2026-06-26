@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Goods Receipts — DW Engineering IPSS</title>
+<link rel="stylesheet" href="style.css" />
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+<div class="app-shell">
+
+  <nav class="sidebar">
+    <div class="sidebar-brand">
+      <img src="dw-logo.png" alt="DW Engineering" />
+      <div class="sidebar-brand-text">DW ENGINEERING<br/>SOLUTION &amp; CONTRACTORS</div>
+    </div>
+    <div class="sidebar-nav" id="sidebarNav"></div>
+    <div class="sidebar-footer">DW Engineering IPSS<br/>v1.0 &middot; Internal Use Only</div>
+  </nav>
+
+  <div class="main-area">
+    <header class="topbar">
+      <div class="topbar-title">Goods Receipts</div>
+      <div class="topbar-user">
+        <span class="role-badge" id="roleBadge"></span>
+        <span class="user-name" id="userName"></span>
+        <button class="btn-link" id="signOutBtn">Sign out</button>
+      </div>
+    </header>
+
+    <main class="content">
+
+      <div class="page-toolbar">
+        <div>
+          <h1 class="section-title">Goods Receipts</h1>
+          <p class="section-subtitle">Record stock as it physically arrives against an approved purchase order.</p>
+        </div>
+        <button class="btn btn-primary" id="addGrnBtn">+ Receive Stock</button>
+      </div>
+
+      <div class="card" style="padding: 0;">
+        <table>
+          <thead>
+            <tr>
+              <th>GRN Number</th>
+              <th>Purchase Order</th>
+              <th>Supplier</th>
+              <th>Received Date</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="grnTableBody">
+            <tr><td colspan="5" class="empty-state">Loading goods receipts…</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<!-- ============================== RECEIVE STOCK MODAL ============================== -->
+<div class="modal-overlay" id="grnModal">
+  <div class="modal-box modal-wide">
+    <div class="modal-header">
+      <h2>Receive Stock</h2>
+      <button class="modal-close" id="closeModalBtn">&times;</button>
+    </div>
+    <form id="grnForm">
+      <div class="modal-body">
+
+        <div class="field">
+          <label for="grnPoSelect">Purchase Order *</label>
+          <select id="grnPoSelect" required>
+            <option value="">Select an approved purchase order…</option>
+          </select>
+        </div>
+
+        <div id="noEligiblePoNotice" class="card" style="display:none; background: var(--warning-bg); border-color: var(--warning); margin-bottom: 16px;">
+          <span style="color: var(--warning);">No purchase orders are currently approved and awaiting receipt. Approve a PO first on the Purchase Orders page.</span>
+        </div>
+
+        <div id="grnLinesWrap" style="display:none;">
+          <div class="field">
+            <label for="grnReceivedDate">Received Date *</label>
+            <input type="date" id="grnReceivedDate" required />
+          </div>
+
+          <label style="margin-bottom:10px;">Quantities Received</label>
+          <table class="line-items-table">
+            <thead>
+              <tr>
+                <th style="width:40%;">Item</th>
+                <th style="width:20%;">Ordered</th>
+                <th style="width:20%;">Already Received</th>
+                <th style="width:20%;">Receiving Now</th>
+              </tr>
+            </thead>
+            <tbody id="grnLinesBody">
+              <!-- populated by JS based on selected PO -->
+            </tbody>
+          </table>
+
+          <div class="field" style="margin-top:14px;">
+            <label for="grnNotes">Notes</label>
+            <input type="text" id="grnNotes" placeholder="e.g. delivered by courier, condition on arrival, etc." />
+          </div>
+        </div>
+
+        <div class="login-error" id="formError" style="display:none;"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" id="cancelModalBtn">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="saveGrnBtn" disabled>Confirm Receipt</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="supabase-config.js"></script>
+<script src="auth-guard.js"></script>
+<script src="nav.js"></script>
+<script>
+
+  let eligiblePOs = [];
+  let currentPoLines = [];
+  let allGRNs = [];
+
+  // ----------------------------------------------------------------------
+  // Load list of past goods receipts
+  // ----------------------------------------------------------------------
+  async function loadGRNs() {
+    const { data, error } = await supabaseClient
+      .from("goods_receipts")
+      .select("*, purchase_orders(po_number, suppliers(name))")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("Error loading goods receipts:", error);
+      document.getElementById("grnTableBody").innerHTML =
+        `<tr><td colspan="5" class="empty-state">Could not load goods receipts. ${error.message}</td></tr>`;
+      return;
+    }
+
+    allGRNs = data || [];
+    renderGrnTable();
+  }
+
+  function renderGrnTable() {
+    const body = document.getElementById("grnTableBody");
+    if (allGRNs.length === 0) {
+      body.innerHTML = `<tr><td colspan="5" class="empty-state">No goods receipts recorded yet.</td></tr>`;
+      return;
+    }
+
+    body.innerHTML = allGRNs
+      .map((g) => {
+        const po = g.purchase_orders;
+        return `
+        <tr>
+          <td class="font-mono">${g.grn_number}</td>
+          <td>${po ? po.po_number : "—"}</td>
+          <td>${po && po.suppliers ? po.suppliers.name : "—"}</td>
+          <td>${g.received_date}</td>
+          <td class="text-right"><button class="icon-btn" onclick="viewGrnNotes('${g.id}')">${g.notes ? "View Notes" : ""}</button></td>
+        </tr>`;
+      })
+      .join("");
+  }
+
+  function viewGrnNotes(grnId) {
+    const g = allGRNs.find((x) => x.id === grnId);
+    if (g && g.notes) alert(g.notes);
+  }
+
+  // ----------------------------------------------------------------------
+  // Load POs eligible for receiving (approved or partially received)
+  // ----------------------------------------------------------------------
+  async function loadEligiblePOs() {
+    const { data, error } = await supabaseClient
+      .from("purchase_orders")
+      .select("*, suppliers(name)")
+      .in("status", ["approved", "partially_received"])
+      .order("order_date", { ascending: false });
+
+    if (error) {
+      console.error("Error loading eligible POs:", error);
+      return;
+    }
+
+    eligiblePOs = data || [];
+
+    const select = document.getElementById("grnPoSelect");
+    const notice = document.getElementById("noEligiblePoNotice");
+
+    if (eligiblePOs.length === 0) {
+      select.innerHTML = `<option value="">No eligible purchase orders</option>`;
+      notice.style.display = "block";
+    } else {
+      notice.style.display = "none";
+      select.innerHTML =
+        `<option value="">Select an approved purchase order…</option>` +
+        eligiblePOs
+          .map((po) => `<option value="${po.id}">${po.po_number} — ${po.suppliers ? po.suppliers.name : "—"}</option>`)
+          .join("");
+    }
+  }
+
+  async function onPoSelected() {
+    const poId = document.getElementById("grnPoSelect").value;
+    const linesWrap = document.getElementById("grnLinesWrap");
+    const saveBtn = document.getElementById("saveGrnBtn");
+
+    if (!poId) {
+      linesWrap.style.display = "none";
+      saveBtn.disabled = true;
+      return;
+    }
+
+    const { data: lines, error } = await supabaseClient
+      .from("purchase_order_lines")
+      .select("*, items(name, item_code, unit_of_measure)")
+      .eq("purchase_order_id", poId);
+
+    if (error) {
+      alert("Could not load order lines: " + error.message);
+      return;
+    }
+
+    currentPoLines = lines || [];
+
+    const tbody = document.getElementById("grnLinesBody");
+    tbody.innerHTML = currentPoLines
+      .map((l) => {
+        const outstanding = Number(l.qty_ordered) - Number(l.qty_received);
+        return `
+        <tr data-line-id="${l.id}" data-item-id="${l.item_id}" data-unit-cost="${l.unit_cost}">
+          <td>${l.items ? l.items.name : "—"} <span class="text-faint">(${l.items ? l.items.item_code : ""})</span></td>
+          <td>${Number(l.qty_ordered).toLocaleString()} ${l.items ? l.items.unit_of_measure : ""}</td>
+          <td>${Number(l.qty_received).toLocaleString()}</td>
+          <td>
+            <input type="number" class="grn-qty-input" min="0" max="${outstanding}" step="0.01"
+                   value="${outstanding > 0 ? outstanding : 0}" />
+          </td>
+        </tr>`;
+      })
+      .join("");
+
+    linesWrap.style.display = "block";
+    saveBtn.disabled = false;
+  }
+
+  document.getElementById("grnPoSelect").addEventListener("change", onPoSelected);
+
+  // ----------------------------------------------------------------------
+  // Modal open/close
+  // ----------------------------------------------------------------------
+  async function openGrnModal() {
+    document.getElementById("grnForm").reset();
+    document.getElementById("grnLinesWrap").style.display = "none";
+    document.getElementById("formError").style.display = "none";
+    document.getElementById("saveGrnBtn").disabled = true;
+    document.getElementById("grnReceivedDate").valueAsDate = new Date();
+
+    await loadEligiblePOs();
+    document.getElementById("grnModal").classList.add("open");
+  }
+
+  function closeGrnModal() {
+    document.getElementById("grnModal").classList.remove("open");
+  }
+
+  document.getElementById("addGrnBtn").addEventListener("click", openGrnModal);
+  document.getElementById("closeModalBtn").addEventListener("click", closeGrnModal);
+  document.getElementById("cancelModalBtn").addEventListener("click", closeGrnModal);
+  document.getElementById("grnModal").addEventListener("click", (e) => {
+    if (e.target.id === "grnModal") closeGrnModal();
+  });
+
+  // ----------------------------------------------------------------------
+  // Submit: create GRN header + lines + stock_movements, update PO line
+  // qty_received and PO status.
+  // ----------------------------------------------------------------------
+  document.getElementById("grnForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const formError = document.getElementById("formError");
+    formError.style.display = "none";
+
+    const poId = document.getElementById("grnPoSelect").value;
+    if (!poId) {
+      formError.textContent = "Please select a purchase order.";
+      formError.style.display = "block";
+      return;
+    }
+
+    const rows = Array.from(document.querySelectorAll("#grnLinesBody tr"));
+    const receivingNow = rows
+      .map((row) => ({
+        lineId: row.getAttribute("data-line-id"),
+        itemId: row.getAttribute("data-item-id"),
+        unitCost: parseFloat(row.getAttribute("data-unit-cost")),
+        qty: parseFloat(row.querySelector(".grn-qty-input").value) || 0,
+      }))
+      .filter((r) => r.qty > 0);
+
+    if (receivingNow.length === 0) {
+      formError.textContent = "Enter a quantity greater than zero for at least one item.";
+      formError.style.display = "block";
+      return;
+    }
+
+    const saveBtn = document.getElementById("saveGrnBtn");
+    saveBtn.disabled = true;
+    saveBtn.textContent = "Saving...";
+
+    const { data: { user } } = await supabaseClient.auth.getUser();
+
+    // 1. Generate GRN number and create the header
+    const { data: grnNumber, error: numError } = await supabaseClient.rpc("next_document_number", { p_prefix: "GRN" });
+    if (numError) {
+      formError.textContent = "Could not generate a GRN number: " + numError.message;
+      formError.style.display = "block";
+      saveBtn.disabled = false;
+      saveBtn.textContent = "Confirm Receipt";
+      return;
+    }
+
+    const { data: grn, error: grnError } = await supabaseClient
+      .from("goods_receipts")
+      .insert({
+        grn_number: grnNumber,
+        purchase_order_id: poId,
+        received_date: document.getElementById("grnReceivedDate").value,
+        received_by: user.id,
+        notes: document.getElementById("grnNotes").value.trim() || null,
+      })
+      .select()
+      .single();
+
+    if (grnError) {
+      formError.textContent = grnError.message;
+      formError.style.display = "block";
+      saveBtn.disabled = false;
+      saveBtn.textContent = "Confirm Receipt";
+      return;
+    }
+
+    // 2. Insert goods_receipt_lines
+    const grnLineInserts = receivingNow.map((r) => ({
+      goods_receipt_id: grn.id,
+      purchase_order_line_id: r.lineId,
+      item_id: r.itemId,
+      qty_received: r.qty,
+      unit_cost: r.unitCost,
+    }));
+    const { error: grnLinesError } = await supabaseClient.from("goods_receipt_lines").insert(grnLineInserts);
+
+    if (grnLinesError) {
+      formError.textContent = "Receipt header saved but lines failed: " + grnLinesError.message;
+      formError.style.display = "block";
+      saveBtn.disabled = false;
+      saveBtn.textContent = "Confirm Receipt";
+      return;
+    }
+
+    // 3. Write stock_movements (the inventory ledger) — one row per item received
+    const stockMovementInserts = receivingNow.map((r) => ({
+      item_id: r.itemId,
+      movement_type: "purchase_receipt",
+      qty_delta: r.qty,
+      unit_cost: r.unitCost,
+      reference_table: "goods_receipts",
+      reference_id: grn.id,
+      performed_by: user.id,
+    }));
+    const { error: stockError } = await supabaseClient.from("stock_movements").insert(stockMovementInserts);
+
+    if (stockError) {
+      formError.textContent = "Receipt saved but stock ledger update failed: " + stockError.message + ". Please contact an administrator.";
+      formError.style.display = "block";
+      saveBtn.disabled = false;
+      saveBtn.textContent = "Confirm Receipt";
+      return;
+    }
+
+    // 4. Update purchase_order_lines.qty_received for each line received
+    for (const r of receivingNow) {
+      const line = currentPoLines.find((l) => l.id === r.lineId);
+      const newQtyReceived = Number(line.qty_received) + r.qty;
+      await supabaseClient
+        .from("purchase_order_lines")
+        .update({ qty_received: newQtyReceived })
+        .eq("id", r.lineId);
+    }
+
+    // 5. Update the PO's overall status: fully received vs partially received
+    const { data: refreshedLines } = await supabaseClient
+      .from("purchase_order_lines")
+      .select("qty_ordered, qty_received")
+      .eq("purchase_order_id", poId);
+
+    const fullyReceived = (refreshedLines || []).every((l) => Number(l.qty_received) >= Number(l.qty_ordered));
+    const newStatus = fullyReceived ? "received" : "partially_received";
+
+    await supabaseClient.from("purchase_orders").update({ status: newStatus }).eq("id", poId);
+
+    saveBtn.disabled = false;
+    saveBtn.textContent = "Confirm Receipt";
+
+    closeGrnModal();
+    loadGRNs();
+  });
+
+  // ----------------------------------------------------------------------
+  // Page init
+  // ----------------------------------------------------------------------
+  (async () => {
+    const profile = await requireAuth();
+    if (!profile) return;
+    if (!guardRole(profile, ["procurement", "store"])) return;
+
+    renderSidebar(profile);
+    renderUserChrome(profile);
+
+    loadGRNs();
+  })();
+
+</script>
+</body>
+</html>

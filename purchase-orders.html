@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Purchase Orders — DW Engineering IPSS</title>
+<link rel="stylesheet" href="style.css" />
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+<div class="app-shell">
+
+  <nav class="sidebar">
+    <div class="sidebar-brand">
+      <img src="dw-logo.png" alt="DW Engineering" />
+      <div class="sidebar-brand-text">DW ENGINEERING<br/>SOLUTION &amp; CONTRACTORS</div>
+    </div>
+    <div class="sidebar-nav" id="sidebarNav"></div>
+    <div class="sidebar-footer">DW Engineering IPSS<br/>v1.0 &middot; Internal Use Only</div>
+  </nav>
+
+  <div class="main-area">
+    <header class="topbar">
+      <div class="topbar-title">Purchase Orders</div>
+      <div class="topbar-user">
+        <span class="role-badge" id="roleBadge"></span>
+        <span class="user-name" id="userName"></span>
+        <button class="btn-link" id="signOutBtn">Sign out</button>
+      </div>
+    </header>
+
+    <main class="content">
+
+      <div class="page-toolbar">
+        <div>
+          <h1 class="section-title">Purchase Orders</h1>
+          <p class="section-subtitle">Create and track orders placed with suppliers.</p>
+        </div>
+        <button class="btn btn-primary" id="addPoBtn">+ New Purchase Order</button>
+      </div>
+
+      <div class="card" style="padding: 0;">
+        <table>
+          <thead>
+            <tr>
+              <th>PO Number</th>
+              <th>Supplier</th>
+              <th>Order Date</th>
+              <th>Status</th>
+              <th class="text-right">Total</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="poTableBody">
+            <tr><td colspan="6" class="empty-state">Loading purchase orders…</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<!-- ============================== CREATE PO MODAL ============================== -->
+<div class="modal-overlay" id="poModal">
+  <div class="modal-box modal-wide">
+    <div class="modal-header">
+      <h2>New Purchase Order</h2>
+      <button class="modal-close" id="closeModalBtn">&times;</button>
+    </div>
+    <form id="poForm">
+      <div class="modal-body">
+
+        <div class="form-row">
+          <div class="field">
+            <label for="poSupplier">Supplier *</label>
+            <select id="poSupplier" required>
+              <option value="">Select a supplier…</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="poExpectedDate">Expected Delivery Date</label>
+            <input type="date" id="poExpectedDate" />
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="poNotes">Notes</label>
+          <input type="text" id="poNotes" placeholder="Optional notes for this order" />
+        </div>
+
+        <hr style="border:none; border-top:1px solid var(--border); margin: 18px 0;" />
+
+        <label style="margin-bottom:10px;">Order Lines</label>
+        <table class="line-items-table">
+          <thead>
+            <tr>
+              <th style="width:35%;">Item</th>
+              <th style="width:15%;">Qty</th>
+              <th style="width:20%;">Unit Cost (ZMW)</th>
+              <th style="width:20%;" class="text-right">Line Total</th>
+              <th style="width:10%;"></th>
+            </tr>
+          </thead>
+          <tbody id="poLinesBody">
+            <!-- rows added by JS -->
+          </tbody>
+        </table>
+        <button type="button" class="btn btn-secondary btn-sm" id="addLineBtn" style="margin-top:8px;">+ Add Line</button>
+
+        <div class="text-right" style="margin-top:16px; font-size:15px;">
+          <strong>Order Total: ZMW <span id="poGrandTotal">0.00</span></strong>
+        </div>
+
+        <div class="login-error" id="formError" style="display:none; margin-top:14px;"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" id="cancelModalBtn">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="savePoBtn">Save as Draft</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ============================== VIEW PO MODAL ============================== -->
+<div class="modal-overlay" id="viewPoModal">
+  <div class="modal-box modal-wide">
+    <div class="modal-header">
+      <h2 id="viewPoTitle">Purchase Order</h2>
+      <button class="modal-close" id="closeViewModalBtn">&times;</button>
+    </div>
+    <div class="modal-body" id="viewPoBody">
+      <!-- populated by JS -->
+    </div>
+    <div class="modal-footer" id="viewPoFooter">
+      <!-- status action buttons populated by JS -->
+    </div>
+  </div>
+</div>
+
+<script src="supabase-config.js"></script>
+<script src="auth-guard.js"></script>
+<script src="nav.js"></script>
+<script>
+
+  let allPOs = [];
+  let allSuppliersList = [];
+  let allItemsList = [];
+  let lineCounter = 0;
+
+  const poStatusBadge = (status) => {
+    const map = {
+      draft: "badge-info",
+      submitted: "badge-warning",
+      approved: "badge-warning",
+      partially_received: "badge-warning",
+      received: "badge-success",
+      cancelled: "badge-danger",
+    };
+    return `<span class="badge ${map[status] || "badge-info"}">${status.replace(/_/g, " ")}</span>`;
+  };
+
+  async function loadReferenceData() {
+    const { data: suppliers } = await supabaseClient
+      .from("suppliers")
+      .select("id, name, supplier_code")
+      .eq("active", true)
+      .order("name");
+    allSuppliersList = suppliers || [];
+
+    const supplierSelect = document.getElementById("poSupplier");
+    supplierSelect.innerHTML =
+      `<option value="">Select a supplier…</option>` +
+      allSuppliersList.map((s) => `<option value="${s.id}">${s.name} (${s.supplier_code})</option>`).join("");
+
+    const { data: items } = await supabaseClient
+      .from("items")
+      .select("id, name, item_code, cost_price")
+      .eq("active", true)
+      .order("name");
+    allItemsList = items || [];
+  }
+
+  async function loadPOs() {
+    const { data, error } = await supabaseClient
+      .from("purchase_orders")
+      .select("*, suppliers(name, supplier_code)")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("Error loading purchase orders:", error);
+      document.getElementById("poTableBody").innerHTML =
+        `<tr><td colspan="6" class="empty-state">Could not load purchase orders. ${error.message}</td></tr>`;
+      return;
+    }
+
+    allPOs = data || [];
+
+    // fetch line totals per PO for the list view
+    for (const po of allPOs) {
+      const { data: lines } = await supabaseClient
+        .from("purchase_order_lines")
+        .select("line_total")
+        .eq("purchase_order_id", po.id);
+      po._total = (lines || []).reduce((sum, l) => sum + Number(l.line_total || 0), 0);
+    }
+
+    renderPOTable();
+  }
+
+  function renderPOTable() {
+    const body = document.getElementById("poTableBody");
+    if (allPOs.length === 0) {
+      body.innerHTML = `<tr><td colspan="6" class="empty-state">No purchase orders yet. Click "New Purchase Order" to create one.</td></tr>`;
+      return;
+    }
+
+    body.innerHTML = allPOs
+      .map(
+        (po) => `
+        <tr>
+          <td class="font-mono">${po.po_number}</td>
+          <td>${po.suppliers ? po.suppliers.name : "—"}</td>
+          <td>${po.order_date}</td>
+          <td>${poStatusBadge(po.status)}</td>
+          <td class="text-right">ZMW ${Number(po._total || 0).toLocaleString("en-ZM", { minimumFractionDigits: 2 })}</td>
+          <td class="text-right">
+            <button class="icon-btn" onclick="openViewModal('${po.id}')">View</button>
+          </td>
+        </tr>
+      `
+      )
+      .join("");
+  }
+
+  // ----------------------------------------------------------------------
+  // Create PO modal: dynamic line items
+  // ----------------------------------------------------------------------
+  function addLineRow() {
+    lineCounter++;
+    const rowId = `line_${lineCounter}`;
+    const itemOptions = allItemsList
+      .map((it) => `<option value="${it.id}" data-cost="${it.cost_price}">${it.name} (${it.item_code})</option>`)
+      .join("");
+
+    const row = document.createElement("tr");
+    row.id = rowId;
+    row.innerHTML = `
+      <td>
+        <select class="line-item-select" onchange="onLineItemChange('${rowId}')">
+          <option value="">Select item…</option>
+          ${itemOptions}
+        </select>
+      </td>
+      <td><input type="number" class="line-qty" min="0.01" step="0.01" value="1" oninput="recalcLine('${rowId}')" /></td>
+      <td><input type="number" class="line-cost" min="0" step="0.01" value="0" oninput="recalcLine('${rowId}')" /></td>
+      <td class="text-right line-total" data-value="0">0.00</td>
+      <td class="text-right"><button type="button" class="icon-btn danger" onclick="removeLine('${rowId}')">Remove</button></td>
+    `;
+    document.getElementById("poLinesBody").appendChild(row);
+  }
+
+  function onLineItemChange(rowId) {
+    const row = document.getElementById(rowId);
+    const select = row.querySelector(".line-item-select");
+    const selectedOption = select.options[select.selectedIndex];
+    const cost = selectedOption ? selectedOption.getAttribute("data-cost") : 0;
+    row.querySelector(".line-cost").value = Number(cost || 0).toFixed(2);
+    recalcLine(rowId);
+  }
+
+  function recalcLine(rowId) {
+    const row = document.getElementById(rowId);
+    const qty = parseFloat(row.querySelector(".line-qty").value) || 0;
+    const cost = parseFloat(row.querySelector(".line-cost").value) || 0;
+    const total = qty * cost;
+    row.querySelector(".line-total").textContent = total.toLocaleString("en-ZM", { minimumFractionDigits: 2 });
+    row.querySelector(".line-total").setAttribute("data-value", total);
+    recalcGrandTotal();
+  }
+
+  function removeLine(rowId) {
+    document.getElementById(rowId).remove();
+    recalcGrandTotal();
+  }
+
+  function recalcGrandTotal() {
+    const totals = Array.from(document.querySelectorAll(".line-total")).map((el) =>
+      parseFloat(el.getAttribute("data-value")) || 0
+    );
+    const grand = totals.reduce((sum, t) => sum + t, 0);
+    document.getElementById("poGrandTotal").textContent = grand.toLocaleString("en-ZM", { minimumFractionDigits: 2 });
+  }
+
+  function resetPoForm() {
+    document.getElementById("poForm").reset();
+    document.getElementById("poLinesBody").innerHTML = "";
+    document.getElementById("poGrandTotal").textContent = "0.00";
+    document.getElementById("formError").style.display = "none";
+    addLineRow();
+  }
+
+  document.getElementById("addPoBtn").addEventListener("click", () => {
+    resetPoForm();
+    document.getElementById("poModal").classList.add("open");
+  });
+
+  document.getElementById("addLineBtn").addEventListener("click", addLineRow);
+
+  function closePoModal() {
+    document.getElementById("poModal").classList.remove("open");
+  }
+  document.getElementById("closeModalBtn").addEventListener("click", closePoModal);
+  document.getElementById("cancelModalBtn").addEventListener("click", closePoModal);
+  document.getElementById("poModal").addEventListener("click", (e) => {
+    if (e.target.id === "poModal") closePoModal();
+  });
+
+  document.getElementById("poForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const formError = document.getElementById("formError");
+    formError.style.display = "none";
+
+    const supplierId = document.getElementById("poSupplier").value;
+    if (!supplierId) {
+      formError.textContent = "Please select a supplier.";
+      formError.style.display = "block";
+      return;
+    }
+
+    const lineRows = Array.from(document.querySelectorAll("#poLinesBody tr"));
+    const lines = lineRows
+      .map((row) => {
+        const itemId = row.querySelector(".line-item-select").value;
+        const qty = parseFloat(row.querySelector(".line-qty").value) || 0;
+        const cost = parseFloat(row.querySelector(".line-cost").value) || 0;
+        return { itemId, qty, cost };
+      })
+      .filter((l) => l.itemId && l.qty > 0);
+
+    if (lines.length === 0) {
+      formError.textContent = "Please add at least one order line with an item and quantity.";
+      formError.style.display = "block";
+      return;
+    }
+
+    const saveBtn = document.getElementById("savePoBtn");
+    saveBtn.disabled = true;
+    saveBtn.textContent = "Saving...";
+
+    // Get the next PO number from the internal auto-numbering function
+    const { data: poNumber, error: numError } = await supabaseClient.rpc("next_document_number", { p_prefix: "PO" });
+
+    if (numError) {
+      formError.textContent = "Could not generate a PO number: " + numError.message;
+      formError.style.display = "block";
+      saveBtn.disabled = false;
+      saveBtn.textContent = "Save as Draft";
+      return;
+    }
+
+    const { data: { user } } = await supabaseClient.auth.getUser();
+
+    const { data: newPO, error: poError } = await supabaseClient
+      .from("purchase_orders")
+      .insert({
+        po_number: poNumber,
+        supplier_id: supplierId,
+        expected_date: document.getElementById("poExpectedDate").value || null,
+        notes: document.getElementById("poNotes").value.trim() || null,
+        created_by: user.id,
+        status: "draft",
+      })
+      .select()
+      .single();
+
+    if (poError) {
+      formError.textContent = poError.message;
+      formError.style.display = "block";
+      saveBtn.disabled = false;
+      saveBtn.textContent = "Save as Draft";
+      return;
+    }
+
+    const lineInserts = lines.map((l) => ({
+      purchase_order_id: newPO.id,
+      item_id: l.itemId,
+      qty_ordered: l.qty,
+      unit_cost: l.cost,
+    }));
+
+    const { error: linesError } = await supabaseClient.from("purchase_order_lines").insert(lineInserts);
+
+    saveBtn.disabled = false;
+    saveBtn.textContent = "Save as Draft";
+
+    if (linesError) {
+      formError.textContent = "Order was created but lines failed to save: " + linesError.message;
+      formError.style.display = "block";
+      return;
+    }
+
+    closePoModal();
+    loadPOs();
+  });
+
+  // ----------------------------------------------------------------------
+  // View PO modal
+  // ----------------------------------------------------------------------
+  async function openViewModal(poId) {
+    const po = allPOs.find((p) => p.id === poId);
+    if (!po) return;
+
+    document.getElementById("viewPoTitle").textContent = `Purchase Order ${po.po_number}`;
+
+    const { data: lines } = await supabaseClient
+      .from("purchase_order_lines")
+      .select("*, items(name, item_code, unit_of_measure)")
+      .eq("purchase_order_id", poId);
+
+    const total = (lines || []).reduce((sum, l) => sum + Number(l.line_total || 0), 0);
+
+    document.getElementById("viewPoBody").innerHTML = `
+      <div class="form-row" style="margin-bottom:16px;">
+        <div><div class="text-muted" style="font-size:12px;">Supplier</div><strong>${po.suppliers ? po.suppliers.name : "—"}</strong></div>
+        <div><div class="text-muted" style="font-size:12px;">Status</div>${poStatusBadge(po.status)}</div>
+      </div>
+      <div class="form-row" style="margin-bottom:16px;">
+        <div><div class="text-muted" style="font-size:12px;">Order Date</div>${po.order_date}</div>
+        <div><div class="text-muted" style="font-size:12px;">Expected Date</div>${po.expected_date || "—"}</div>
+      </div>
+      ${po.notes ? `<div style="margin-bottom:16px;"><div class="text-muted" style="font-size:12px;">Notes</div>${po.notes}</div>` : ""}
+      <table>
+        <thead><tr><th>Item</th><th>Qty Ordered</th><th>Qty Received</th><th>Unit Cost</th><th class="text-right">Line Total</th></tr></thead>
+        <tbody>
+          ${(lines || [])
+            .map(
+              (l) => `
+            <tr>
+              <td>${l.items ? l.items.name : "—"}</td>
+              <td>${Number(l.qty_ordered).toLocaleString()} ${l.items ? l.items.unit_of_measure : ""}</td>
+              <td>${Number(l.qty_received).toLocaleString()}</td>
+              <td>ZMW ${Number(l.unit_cost).toLocaleString("en-ZM", { minimumFractionDigits: 2 })}</td>
+              <td class="text-right">ZMW ${Number(l.line_total).toLocaleString("en-ZM", { minimumFractionDigits: 2 })}</td>
+            </tr>`
+            )
+            .join("")}
+        </tbody>
+      </table>
+      <div class="text-right" style="margin-top:14px; font-size:15px;">
+        <strong>Total: ZMW ${total.toLocaleString("en-ZM", { minimumFractionDigits: 2 })}</strong>
+      </div>
+    `;
+
+    // Status action buttons
+    const footer = document.getElementById("viewPoFooter");
+    let actionsHtml = "";
+    if (po.status === "draft") {
+      actionsHtml = `<button class="btn btn-primary" onclick="updatePoStatus('${po.id}', 'submitted')">Submit for Approval</button>`;
+    } else if (po.status === "submitted") {
+      actionsHtml = `<button class="btn btn-primary" onclick="updatePoStatus('${po.id}', 'approved')">Approve</button>`;
+    } else if (po.status === "approved" || po.status === "partially_received") {
+      actionsHtml = `<span class="text-muted" style="font-size:13px;">Go to Goods Receipts to record stock received against this order.</span>`;
+    }
+    footer.innerHTML = `<button type="button" class="btn btn-secondary" onclick="closeViewModal()">Close</button>${actionsHtml}`;
+
+    document.getElementById("viewPoModal").classList.add("open");
+  }
+
+  async function updatePoStatus(poId, newStatus) {
+    const updates = { status: newStatus };
+    if (newStatus === "approved") {
+      const { data: { user } } = await supabaseClient.auth.getUser();
+      updates.approved_by = user.id;
+      updates.approved_at = new Date().toISOString();
+    }
+    const { error } = await supabaseClient.from("purchase_orders").update(updates).eq("id", poId);
+    if (error) {
+      alert("Could not update status: " + error.message);
+      return;
+    }
+    closeViewModal();
+    loadPOs();
+  }
+
+  function closeViewModal() {
+    document.getElementById("viewPoModal").classList.remove("open");
+  }
+  document.getElementById("closeViewModalBtn").addEventListener("click", closeViewModal);
+  document.getElementById("viewPoModal").addEventListener("click", (e) => {
+    if (e.target.id === "viewPoModal") closeViewModal();
+  });
+
+  // ----------------------------------------------------------------------
+  // Page init
+  // ----------------------------------------------------------------------
+  (async () => {
+    const profile = await requireAuth();
+    if (!profile) return;
+    if (!guardRole(profile, ["procurement"])) return;
+
+    renderSidebar(profile);
+    renderUserChrome(profile);
+
+    await loadReferenceData();
+    await loadPOs();
+  })();
+
+</script>
+</body>
+</html>

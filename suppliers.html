@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Suppliers — DW Engineering IPSS</title>
+<link rel="stylesheet" href="style.css" />
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+<div class="app-shell">
+
+  <nav class="sidebar">
+    <div class="sidebar-brand">
+      <img src="dw-logo.png" alt="DW Engineering" />
+      <div class="sidebar-brand-text">DW ENGINEERING<br/>SOLUTION &amp; CONTRACTORS</div>
+    </div>
+    <div class="sidebar-nav" id="sidebarNav"></div>
+    <div class="sidebar-footer">DW Engineering IPSS<br/>v1.0 &middot; Internal Use Only</div>
+  </nav>
+
+  <div class="main-area">
+    <header class="topbar">
+      <div class="topbar-title">Suppliers</div>
+      <div class="topbar-user">
+        <span class="role-badge" id="roleBadge"></span>
+        <span class="user-name" id="userName"></span>
+        <button class="btn-link" id="signOutBtn">Sign out</button>
+      </div>
+    </header>
+
+    <main class="content">
+
+      <div class="page-toolbar">
+        <div>
+          <h1 class="section-title">Suppliers</h1>
+          <p class="section-subtitle">Manage the companies you buy stock and materials from.</p>
+        </div>
+        <button class="btn btn-primary" id="addSupplierBtn">+ Add Supplier</button>
+      </div>
+
+      <div class="search-input-wrap">
+        <input type="text" id="searchInput" placeholder="Search by name or code..." />
+      </div>
+
+      <div class="card" style="padding: 0;">
+        <table id="suppliersTable">
+          <thead>
+            <tr>
+              <th>Code</th>
+              <th>Name</th>
+              <th>Contact Person</th>
+              <th>Phone</th>
+              <th>Payment Terms</th>
+              <th>Status</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="suppliersTableBody">
+            <tr><td colspan="7" class="empty-state">Loading suppliers…</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<!-- ============================== ADD / EDIT MODAL ============================== -->
+<div class="modal-overlay" id="supplierModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h2 id="modalTitle">Add Supplier</h2>
+      <button class="modal-close" id="closeModalBtn">&times;</button>
+    </div>
+    <form id="supplierForm">
+      <div class="modal-body">
+        <input type="hidden" id="supplierId" />
+
+        <div class="form-row">
+          <div class="field">
+            <label for="supplierCode">Supplier Code *</label>
+            <input type="text" id="supplierCode" required placeholder="e.g. SUP-0001" />
+          </div>
+          <div class="field">
+            <label for="supplierName">Company Name *</label>
+            <input type="text" id="supplierName" required placeholder="e.g. Zambia Industrial Supplies Ltd" />
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="field">
+            <label for="contactPerson">Contact Person</label>
+            <input type="text" id="contactPerson" placeholder="e.g. John Banda" />
+          </div>
+          <div class="field">
+            <label for="supplierPhone">Phone</label>
+            <input type="text" id="supplierPhone" placeholder="e.g. +260 97X XXX XXX" />
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="supplierEmail">Email</label>
+          <input type="email" id="supplierEmail" placeholder="e.g. sales@supplier.com" />
+        </div>
+
+        <div class="field">
+          <label for="supplierAddress">Address</label>
+          <input type="text" id="supplierAddress" placeholder="Street, area" />
+        </div>
+
+        <div class="form-row">
+          <div class="field">
+            <label for="supplierCity">City</label>
+            <input type="text" id="supplierCity" placeholder="e.g. Lusaka" />
+          </div>
+          <div class="field">
+            <label for="supplierCountry">Country</label>
+            <input type="text" id="supplierCountry" value="Zambia" />
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="field">
+            <label for="taxNumber">Tax Number (TPIN)</label>
+            <input type="text" id="taxNumber" placeholder="e.g. 1234567890" />
+          </div>
+          <div class="field">
+            <label for="paymentTerms">Payment Terms</label>
+            <input type="text" id="paymentTerms" placeholder="e.g. Net 30" />
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="supplierNotes">Notes</label>
+          <textarea id="supplierNotes" rows="2" placeholder="Any other useful info..."></textarea>
+        </div>
+
+        <div class="field" id="activeFieldWrap" style="display:none;">
+          <label style="display:flex; align-items:center; gap:8px; font-weight:500;">
+            <input type="checkbox" id="supplierActive" style="width:auto;" checked />
+            Active (uncheck to deactivate without deleting)
+          </label>
+        </div>
+
+        <div class="login-error" id="formError" style="display:none;"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" id="cancelModalBtn">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="saveSupplierBtn">Save Supplier</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="supabase-config.js"></script>
+<script src="auth-guard.js"></script>
+<script src="nav.js"></script>
+<script>
+
+  let allSuppliers = [];
+
+  function renderTable(suppliers) {
+    const body = document.getElementById("suppliersTableBody");
+
+    if (suppliers.length === 0) {
+      body.innerHTML = `<tr><td colspan="7" class="empty-state">No suppliers found.</td></tr>`;
+      return;
+    }
+
+    body.innerHTML = suppliers
+      .map((s) => `
+        <tr>
+          <td class="font-mono">${s.supplier_code}</td>
+          <td><strong>${s.name}</strong></td>
+          <td>${s.contact_person || "—"}</td>
+          <td>${s.phone || "—"}</td>
+          <td>${s.payment_terms || "—"}</td>
+          <td>${s.active
+              ? `<span class="badge badge-success">Active</span>`
+              : `<span class="badge badge-danger">Inactive</span>`}</td>
+          <td class="text-right">
+            <button class="icon-btn" onclick="openEditModal('${s.id}')">Edit</button>
+          </td>
+        </tr>
+      `)
+      .join("");
+  }
+
+  async function loadSuppliers() {
+    const { data, error } = await supabaseClient
+      .from("suppliers")
+      .select("*")
+      .order("name", { ascending: true });
+
+    if (error) {
+      console.error("Error loading suppliers:", error);
+      document.getElementById("suppliersTableBody").innerHTML =
+        `<tr><td colspan="7" class="empty-state">Could not load suppliers. ${error.message}</td></tr>`;
+      return;
+    }
+
+    allSuppliers = data || [];
+    renderTable(allSuppliers);
+  }
+
+  document.getElementById("searchInput").addEventListener("input", (e) => {
+    const term = e.target.value.trim().toLowerCase();
+    const filtered = allSuppliers.filter(
+      (s) =>
+        s.name.toLowerCase().includes(term) ||
+        s.supplier_code.toLowerCase().includes(term)
+    );
+    renderTable(filtered);
+  });
+
+  // ----------------------------------------------------------------------
+  // Modal handling
+  // ----------------------------------------------------------------------
+  const modal = document.getElementById("supplierModal");
+  const form = document.getElementById("supplierForm");
+  const formError = document.getElementById("formError");
+
+  function openAddModal() {
+    form.reset();
+    document.getElementById("supplierId").value = "";
+    document.getElementById("supplierCountry").value = "Zambia";
+    document.getElementById("modalTitle").textContent = "Add Supplier";
+    document.getElementById("activeFieldWrap").style.display = "none";
+    formError.style.display = "none";
+    modal.classList.add("open");
+  }
+
+  function openEditModal(id) {
+    const s = allSuppliers.find((x) => x.id === id);
+    if (!s) return;
+
+    form.reset();
+    document.getElementById("supplierId").value = s.id;
+    document.getElementById("supplierCode").value = s.supplier_code || "";
+    document.getElementById("supplierName").value = s.name || "";
+    document.getElementById("contactPerson").value = s.contact_person || "";
+    document.getElementById("supplierPhone").value = s.phone || "";
+    document.getElementById("supplierEmail").value = s.email || "";
+    document.getElementById("supplierAddress").value = s.address || "";
+    document.getElementById("supplierCity").value = s.city || "";
+    document.getElementById("supplierCountry").value = s.country || "Zambia";
+    document.getElementById("taxNumber").value = s.tax_number || "";
+    document.getElementById("paymentTerms").value = s.payment_terms || "";
+    document.getElementById("supplierNotes").value = s.notes || "";
+    document.getElementById("supplierActive").checked = s.active;
+    document.getElementById("activeFieldWrap").style.display = "block";
+
+    document.getElementById("modalTitle").textContent = "Edit Supplier";
+    formError.style.display = "none";
+    modal.classList.add("open");
+  }
+
+  function closeModal() {
+    modal.classList.remove("open");
+  }
+
+  document.getElementById("addSupplierBtn").addEventListener("click", openAddModal);
+  document.getElementById("closeModalBtn").addEventListener("click", closeModal);
+  document.getElementById("cancelModalBtn").addEventListener("click", closeModal);
+  modal.addEventListener("click", (e) => {
+    if (e.target === modal) closeModal();
+  });
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    formError.style.display = "none";
+
+    const id = document.getElementById("supplierId").value;
+    const payload = {
+      supplier_code: document.getElementById("supplierCode").value.trim(),
+      name: document.getElementById("supplierName").value.trim(),
+      contact_person: document.getElementById("contactPerson").value.trim() || null,
+      phone: document.getElementById("supplierPhone").value.trim() || null,
+      email: document.getElementById("supplierEmail").value.trim() || null,
+      address: document.getElementById("supplierAddress").value.trim() || null,
+      city: document.getElementById("supplierCity").value.trim() || null,
+      country: document.getElementById("supplierCountry").value.trim() || "Zambia",
+      tax_number: document.getElementById("taxNumber").value.trim() || null,
+      payment_terms: document.getElementById("paymentTerms").value.trim() || null,
+      notes: document.getElementById("supplierNotes").value.trim() || null,
+    };
+
+    const saveBtn = document.getElementById("saveSupplierBtn");
+    saveBtn.disabled = true;
+    saveBtn.textContent = "Saving...";
+
+    let result;
+    if (id) {
+      payload.active = document.getElementById("supplierActive").checked;
+      result = await supabaseClient.from("suppliers").update(payload).eq("id", id);
+    } else {
+      const { data: { user } } = await supabaseClient.auth.getUser();
+      payload.created_by = user.id;
+      result = await supabaseClient.from("suppliers").insert(payload);
+    }
+
+    saveBtn.disabled = false;
+    saveBtn.textContent = "Save Supplier";
+
+    if (result.error) {
+      formError.textContent = result.error.message.includes("duplicate")
+        ? "That supplier code is already in use. Please choose a different one."
+        : result.error.message;
+      formError.style.display = "block";
+      return;
+    }
+
+    closeModal();
+    loadSuppliers();
+  });
+
+  // ----------------------------------------------------------------------
+  // Page init
+  // ----------------------------------------------------------------------
+  (async () => {
+    const profile = await requireAuth();
+    if (!profile) return;
+    if (!guardRole(profile, ["procurement"])) return;
+
+    renderSidebar(profile);
+    renderUserChrome(profile);
+
+    loadSuppliers();
+  })();
+
+</script>
+</body>
+</html>
