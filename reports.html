@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Reports — DW Engineering IPSS</title>
+<link rel="stylesheet" href="style.css" />
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  .report-tabs {
+    display: flex;
+    gap: 4px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 20px;
+    overflow-x: auto;
+    padding-bottom: 1px;
+  }
+  .report-tab {
+    background: none;
+    border: none;
+    padding: 10px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-muted);
+    cursor: pointer;
+    white-space: nowrap;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+  }
+  .report-tab:hover { color: var(--text); }
+  .report-tab.active { color: var(--navy); border-bottom-color: var(--navy); }
+  .date-filter-bar {
+    display: flex;
+    align-items: end;
+    gap: 12px;
+    margin-bottom: 18px;
+    flex-wrap: wrap;
+  }
+  .date-filter-bar .field { margin-bottom: 0; }
+  .date-filter-bar input { width: auto; }
+</style>
+</head>
+<body>
+
+<div class="app-shell">
+
+  <nav class="sidebar">
+    <div class="sidebar-brand">
+      <img src="dw-logo.png" alt="DW Engineering" />
+      <div class="sidebar-brand-text">DW ENGINEERING<br/>SOLUTION &amp; CONTRACTORS</div>
+    </div>
+    <div class="sidebar-nav" id="sidebarNav"></div>
+    <div class="sidebar-footer">DW Engineering IPSS<br/>v1.0 &middot; Internal Use Only</div>
+  </nav>
+
+  <div class="main-area">
+    <header class="topbar">
+      <div class="topbar-title">Reports</div>
+      <div class="topbar-user">
+        <span class="role-badge" id="roleBadge"></span>
+        <span class="user-name" id="userName"></span>
+        <button class="btn-link" id="signOutBtn">Sign out</button>
+      </div>
+    </header>
+
+    <main class="content">
+
+      <h1 class="section-title">Reports</h1>
+      <p class="section-subtitle">Business performance across procurement, sales, inventory, and service.</p>
+
+      <div class="report-tabs" id="reportTabs">
+        <button class="report-tab active" data-report="purchases">Purchases</button>
+        <button class="report-tab" data-report="sales">Sales</button>
+        <button class="report-tab" data-report="inventory_movement">Inventory Movement</button>
+        <button class="report-tab" data-report="stock_valuation">Stock Valuation</button>
+        <button class="report-tab" data-report="customer_transactions">Customer Transactions</button>
+        <button class="report-tab" data-report="supplier_transactions">Supplier Transactions</button>
+        <button class="report-tab" data-report="service_jobs">Service Jobs</button>
+        <button class="report-tab" data-report="profitability">Profitability</button>
+      </div>
+
+      <div class="date-filter-bar" id="dateFilterBar">
+        <div class="field">
+          <label for="dateFrom">From</label>
+          <input type="date" id="dateFrom" />
+        </div>
+        <div class="field">
+          <label for="dateTo">To</label>
+          <input type="date" id="dateTo" />
+        </div>
+        <button class="btn btn-secondary btn-sm" id="applyDateFilterBtn">Apply</button>
+        <button class="btn btn-secondary btn-sm" id="clearDateFilterBtn">Clear</button>
+        <div style="flex:1;"></div>
+        <button class="btn btn-secondary btn-sm" id="printReportBtn">Print / Save as PDF</button>
+      </div>
+
+      <div id="reportSummaryCards" class="grid grid-3" style="margin-bottom:18px;"></div>
+
+      <div class="card" style="padding: 0;">
+        <table id="reportTable">
+          <thead id="reportTableHead"></thead>
+          <tbody id="reportTableBody">
+            <tr><td class="empty-state">Loading report…</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<script src="supabase-config.js"></script>
+<script src="auth-guard.js"></script>
+<script src="nav.js"></script>
+<script>
+
+  let currentReport = "purchases";
+  const fmtMoney = (n) => "ZMW " + Number(n || 0).toLocaleString("en-ZM", { minimumFractionDigits: 2 });
+  const fmtNum = (n) => Number(n || 0).toLocaleString();
+
+  // ----------------------------------------------------------------------
+  // Tab switching
+  // ----------------------------------------------------------------------
+  document.querySelectorAll(".report-tab").forEach((tab) => {
+    tab.addEventListener("click", () => {
+      document.querySelectorAll(".report-tab").forEach((t) => t.classList.remove("active"));
+      tab.classList.add("active");
+      currentReport = tab.getAttribute("data-report");
+      runReport();
+    });
+  });
+
+  document.getElementById("applyDateFilterBtn").addEventListener("click", runReport);
+  document.getElementById("clearDateFilterBtn").addEventListener("click", () => {
+    document.getElementById("dateFrom").value = "";
+    document.getElementById("dateTo").value = "";
+    runReport();
+  });
+  document.getElementById("printReportBtn").addEventListener("click", () => window.print());
+
+  function getDateRange() {
+    return {
+      from: document.getElementById("dateFrom").value || null,
+      to: document.getElementById("dateTo").value || null,
+    };
+  }
+
+  function setSummaryCards(cards) {
+    const wrap = document.getElementById("reportSummaryCards");
+    if (!cards || cards.length === 0) {
+      wrap.innerHTML = "";
+      return;
+    }
+    wrap.innerHTML = cards
+      .map((c) => `
+        <div class="stat-card">
+          <div class="stat-label">${c.label}</div>
+          <div class="stat-value">${c.value}</div>
+          ${c.sub ? `<div class="stat-sub">${c.sub}</div>` : ""}
+        </div>
+      `)
+      .join("");
+  }
+
+  function setTable(headers, rows) {
+    document.getElementById("reportTableHead").innerHTML =
+      "<tr>" + headers.map((h) => `<th class="${h.right ? "text-right" : ""}">${h.label}</th>`).join("") + "</tr>";
+
+    const body = document.getElementById("reportTableBody");
+    if (rows.length === 0) {
+      body.innerHTML = `<tr><td colspan="${headers.length}" class="empty-state">No data found for this period.</td></tr>`;
+      return;
+    }
+    body.innerHTML = rows
+      .map((row) => "<tr>" + row.map((cell, idx) => `<td class="${headers[idx] && headers[idx].right ? "text-right" : ""}">${cell}</td>`).join("") + "</tr>")
+      .join("");
+  }
+
+  // ----------------------------------------------------------------------
+  // Report: Purchases
+  // ----------------------------------------------------------------------
+  async function runPurchasesReport() {
+    const { from, to } = getDateRange();
+    let query = supabaseClient.from("purchase_orders").select("*, suppliers(name)").order("order_date", { ascending: false });
+    if (from) query = query.gte("order_date", from);
+    if (to) query = query.lte("order_date", to);
+    const { data: pos, error } = await query;
+
+    if (error) { setTable([{ label: "Error" }], [[error.message]]); return; }
+
+    let totalValue = 0;
+    const rows = [];
+    for (const po of pos || []) {
+      const { data: lines } = await supabaseClient.from("purchase_order_lines").select("line_total").eq("purchase_order_id", po.id);
+      const total = (lines || []).reduce((s, l) => s + Number(l.line_total || 0), 0);
+      totalValue += total;
+      rows.push([po.po_number, po.suppliers ? po.suppliers.name : "—", po.order_date, po.status.replace(/_/g, " "), fmtMoney(total)]);
+    }
+
+    setSummaryCards([
+      { label: "Purchase Orders", value: fmtNum(pos.length) },
+      { label: "Total Value", value: fmtMoney(totalValue) },
+    ]);
+    setTable(
+      [{ label: "PO Number" }, { label: "Supplier" }, { label: "Date" }, { label: "Status" }, { label: "Total", right: true }],
+      rows
+    );
+  }
+
+  // ----------------------------------------------------------------------
+  // Report: Sales (invoices, product + service)
+  // ----------------------------------------------------------------------
+  async function runSalesReport() {
+    const { from, to } = getDateRange();
+    let query = supabaseClient.from("invoices").select("*, customers(name)").not("status", "in", "(draft,cancelled)").order("invoice_date", { ascending: false });
+    if (from) query = query.gte("invoice_date", from);
+    if (to) query = query.lte("invoice_date", to);
+    const { data: invoices, error } = await query;
+
+    if (error) { setTable([{ label: "Error" }], [[error.message]]); return; }
+
+    const totalRevenue = (invoices || []).reduce((s, inv) => s + Number(inv.total || 0), 0);
+    const totalPaid = (invoices || []).reduce((s, inv) => s + Number(inv.amount_paid || 0), 0);
+
+    setSummaryCards([
+      { label: "Invoices", value: fmtNum(invoices.length) },
+      { label: "Total Revenue", value: fmtMoney(totalRevenue) },
+      { label: "Total Collected", value: fmtMoney(totalPaid), sub: `${fmtMoney(totalRevenue - totalPaid)} outstanding` },
+    ]);
+    setTable(
+      [{ label: "Invoice #" }, { label: "Customer" }, { label: "Type" }, { label: "Date" }, { label: "Status" }, { label: "Total", right: true }],
+      (invoices || []).map((inv) => [inv.invoice_number, inv.customers ? inv.customers.name : "—", inv.invoice_type, inv.invoice_date, inv.status.replace(/_/g, " "), fmtMoney(inv.total)])
+    );
+  }
+
+  // ----------------------------------------------------------------------
+  // Report: Inventory Movement (from v_inventory_movement)
+  // ----------------------------------------------------------------------
+  async function runInventoryMovementReport() {
+    const { from, to } = getDateRange();
+    let query = supabaseClient.from("v_inventory_movement").select("*");
+    if (from) query = query.gte("movement_date", from);
+    if (to) query = query.lte("movement_date", to + "T23:59:59");
+    const { data, error } = await query;
+
+    if (error) { setTable([{ label: "Error" }], [[error.message]]); return; }
+
+    const totalIn = (data || []).filter((m) => m.qty_delta > 0).reduce((s, m) => s + Number(m.qty_delta), 0);
+    const totalOut = (data || []).filter((m) => m.qty_delta < 0).reduce((s, m) => s + Math.abs(Number(m.qty_delta)), 0);
+
+    setSummaryCards([
+      { label: "Movements", value: fmtNum(data.length) },
+      { label: "Total Units In", value: fmtNum(totalIn) },
+      { label: "Total Units Out", value: fmtNum(totalOut) },
+    ]);
+    setTable(
+      [{ label: "Date" }, { label: "Item" }, { label: "Type" }, { label: "Qty", right: true }, { label: "Value", right: true }, { label: "By" }],
+      (data || []).map((m) => [
+        new Date(m.movement_date).toLocaleDateString(),
+        m.item_name,
+        m.movement_type.replace(/_/g, " "),
+        (m.qty_delta > 0 ? "+" : "") + fmtNum(m.qty_delta),
+        fmtMoney(m.movement_value),
+        m.performed_by_name || "—",
+      ])
+    );
+  }
+
+  // ----------------------------------------------------------------------
+  // Report: Stock Valuation (from v_current_stock)
+  // ----------------------------------------------------------------------
+  async function runStockValuationReport() {
+    const { data, error } = await supabaseClient.from("v_current_stock").select("*").order("name");
+    if (error) { setTable([{ label: "Error" }], [[error.message]]); return; }
+
+    const totalValue = (data || []).reduce((s, r) => s + Number(r.stock_value || 0), 0);
+    const lowStock = (data || []).filter((r) => r.is_low_stock).length;
+
+    setSummaryCards([
+      { label: "Total Stock Value", value: fmtMoney(totalValue) },
+      { label: "Items Tracked", value: fmtNum(data.length) },
+      { label: "Low Stock Items", value: fmtNum(lowStock) },
+    ]);
+    setTable(
+      [{ label: "Code" }, { label: "Item" }, { label: "On Hand", right: true }, { label: "Unit Cost", right: true }, { label: "Stock Value", right: true }],
+      (data || []).map((r) => [r.item_code, r.name, fmtNum(r.qty_on_hand) + " " + (r.unit_of_measure || ""), fmtMoney(r.standard_cost), fmtMoney(r.stock_value)])
+    );
+  }
+
+  // ----------------------------------------------------------------------
+  // Report: Customer Transactions (from v_customer_balances)
+  // ----------------------------------------------------------------------
+  async function runCustomerTransactionsReport() {
+    const { data, error } = await supabaseClient.from("v_customer_balances").select("*").order("customer_name");
+    if (error) { setTable([{ label: "Error" }], [[error.message]]); return; }
+
+    const totalInvoiced = (data || []).reduce((s, r) => s + Number(r.total_invoiced || 0), 0);
+    const totalOutstanding = (data || []).reduce((s, r) => s + Number(r.balance_outstanding || 0), 0);
+
+    setSummaryCards([
+      { label: "Total Invoiced", value: fmtMoney(totalInvoiced) },
+      { label: "Total Outstanding", value: fmtMoney(totalOutstanding) },
+    ]);
+    setTable(
+      [{ label: "Customer" }, { label: "Total Invoiced", right: true }, { label: "Total Paid", right: true }, { label: "Outstanding", right: true }],
+      (data || []).map((r) => [r.customer_name, fmtMoney(r.total_invoiced), fmtMoney(r.total_paid), fmtMoney(r.balance_outstanding)])
+    );
+  }
+
+  // ----------------------------------------------------------------------
+  // Report: Supplier Transactions (from v_supplier_balances)
+  // ----------------------------------------------------------------------
+  async function runSupplierTransactionsReport() {
+    const { data, error } = await supabaseClient.from("v_supplier_balances").select("*").order("supplier_name");
+    if (error) { setTable([{ label: "Error" }], [[error.message]]); return; }
+
+    const totalOrdered = (data || []).reduce((s, r) => s + Number(r.total_ordered || 0), 0);
+    const totalOutstanding = (data || []).reduce((s, r) => s + Number(r.balance_outstanding || 0), 0);
+
+    setSummaryCards([
+      { label: "Total Ordered", value: fmtMoney(totalOrdered) },
+      { label: "Total Outstanding", value: fmtMoney(totalOutstanding) },
+    ]);
+    setTable(
+      [{ label: "Supplier" }, { label: "Total Ordered", right: true }, { label: "Total Paid", right: true }, { label: "Outstanding", right: true }],
+      (data || []).map((r) => [r.supplier_name, fmtMoney(r.total_ordered), fmtMoney(r.total_paid), fmtMoney(r.balance_outstanding)])
+    );
+  }
+
+  // ----------------------------------------------------------------------
+  // Report: Service Jobs (from v_service_job_summary)
+  // ----------------------------------------------------------------------
+  async function runServiceJobsReport() {
+    const { from, to } = getDateRange();
+    let query = supabaseClient.from("v_service_job_summary").select("*").order("date_opened", { ascending: false });
+    if (from) query = query.gte("date_opened", from);
+    if (to) query = query.lte("date_opened", to);
+    const { data, error } = await query;
+
+    if (error) { setTable([{ label: "Error" }], [[error.message]]); return; }
+
+    const totalBillable = (data || []).reduce((s, r) => s + Number(r.billable_total || 0), 0);
+    const totalCost = (data || []).reduce((s, r) => s + Number(r.estimated_job_cost || 0), 0);
+
+    setSummaryCards([
+      { label: "Job Cards", value: fmtNum(data.length) },
+      { label: "Total Billable", value: fmtMoney(totalBillable) },
+      { label: "Estimated Cost", value: fmtMoney(totalCost) },
+    ]);
+    setTable(
+      [{ label: "Job Card #" }, { label: "Customer / Branch" }, { label: "Service" }, { label: "Technician" }, { label: "Status" }, { label: "Billable", right: true }],
+      (data || []).map((r) => [
+        r.job_card_number,
+        `${r.customer_name} — ${r.branch_name}`,
+        r.service_category.replace(/_/g, " "),
+        r.technician_name || "Unassigned",
+        r.status.replace(/_/g, " "),
+        fmtMoney(r.billable_total),
+      ])
+    );
+  }
+
+  // ----------------------------------------------------------------------
+  // Report: Profitability (from v_invoice_profitability_summary)
+  // ----------------------------------------------------------------------
+  async function runProfitabilityReport() {
+    const { from, to } = getDateRange();
+    let query = supabaseClient.from("v_invoice_profitability_summary").select("*").order("invoice_date", { ascending: false });
+    if (from) query = query.gte("invoice_date", from);
+    if (to) query = query.lte("invoice_date", to);
+    const { data, error } = await query;
+
+    if (error) { setTable([{ label: "Error" }], [[error.message]]); return; }
+
+    const totalRevenue = (data || []).reduce((s, r) => s + Number(r.total_revenue || 0), 0);
+    const totalProfit = (data || []).reduce((s, r) => s + Number(r.total_estimated_profit || 0), 0);
+    const overallMargin = totalRevenue > 0 ? ((totalProfit / totalRevenue) * 100).toFixed(1) : "0.0";
+
+    setSummaryCards([
+      { label: "Total Revenue", value: fmtMoney(totalRevenue) },
+      { label: "Estimated Profit", value: fmtMoney(totalProfit) },
+      { label: "Overall Margin", value: overallMargin + "%" },
+    ]);
+    setTable(
+      [{ label: "Invoice #" }, { label: "Customer" }, { label: "Revenue", right: true }, { label: "Est. Cost", right: true }, { label: "Est. Profit", right: true }, { label: "Margin", right: true }],
+      (data || []).map((r) => [
+        r.invoice_number,
+        r.customer_name,
+        fmtMoney(r.total_revenue),
+        fmtMoney(r.total_estimated_cost),
+        fmtMoney(r.total_estimated_profit),
+        r.profit_margin_pct + "%",
+      ])
+    );
+  }
+
+  // ----------------------------------------------------------------------
+  // Dispatch
+  // ----------------------------------------------------------------------
+  const REPORT_RUNNERS = {
+    purchases: runPurchasesReport,
+    sales: runSalesReport,
+    inventory_movement: runInventoryMovementReport,
+    stock_valuation: runStockValuationReport,
+    customer_transactions: runCustomerTransactionsReport,
+    supplier_transactions: runSupplierTransactionsReport,
+    service_jobs: runServiceJobsReport,
+    profitability: runProfitabilityReport,
+  };
+
+  // Date filter is irrelevant for valuation/balance-style reports (they're
+  // point-in-time snapshots, not transaction lists) -- hide it for those.
+  const REPORTS_WITHOUT_DATE_FILTER = new Set(["stock_valuation", "customer_transactions", "supplier_transactions"]);
+
+  async function runReport() {
+    document.getElementById("dateFilterBar").style.display = REPORTS_WITHOUT_DATE_FILTER.has(currentReport) ? "none" : "flex";
+    document.getElementById("reportTableBody").innerHTML = `<tr><td class="empty-state">Loading report…</td></tr>`;
+    const runner = REPORT_RUNNERS[currentReport];
+    if (runner) await runner();
+  }
+
+  // ----------------------------------------------------------------------
+  // Page init
+  // ----------------------------------------------------------------------
+  (async () => {
+    const profile = await requireAuth();
+    if (!profile) return;
+    if (!guardRole(profile, ["finance"])) return;
+
+    renderSidebar(profile);
+    renderUserChrome(profile);
+
+    runReport();
+  })();
+
+</script>
+</body>
+</html>
