@@ -294,7 +294,7 @@
   async function loadJobCards() {
     const { data, error } = await supabaseClient
       .from("job_cards")
-      .select("*, customers(name), customer_branches(branch_name), profiles(full_name)")
+      .select("*, customers(name), customer_branches(branch_name), profiles!technician_id(full_name)")
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -420,7 +420,7 @@
   async function renderJobCardDetail(jobCardId) {
     const { data: jc, error } = await supabaseClient
       .from("job_cards")
-      .select("*, customers(name), customer_branches(branch_name), profiles(full_name)")
+      .select("*, customers(name), customer_branches(branch_name), profiles!technician_id(full_name)")
       .eq("id", jobCardId)
       .single();
 
