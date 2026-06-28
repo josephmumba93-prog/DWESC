@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Quotations — DW Engineering IPSS</title>
+<link rel="stylesheet" href="style.css" />
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+<div class="app-shell">
+
+  <nav class="sidebar">
+    <div class="sidebar-brand">
+      <img src="dw-logo.png" alt="DW Engineering" />
+      <div class="sidebar-brand-text">DW ENGINEERING<br/>SOLUTION &amp; CONTRACTORS</div>
+    </div>
+    <div class="sidebar-nav" id="sidebarNav"></div>
+    <div class="sidebar-footer">DW Engineering IPSS<br/>v1.0 &middot; Internal Use Only</div>
+  </nav>
+
+  <div class="main-area">
+    <header class="topbar">
+      <div class="topbar-title">Quotations</div>
+      <div class="topbar-user">
+        <span class="role-badge" id="roleBadge"></span>
+        <span class="user-name" id="userName"></span>
+        <button class="btn-link" id="signOutBtn">Sign out</button>
+      </div>
+    </header>
+
+    <main class="content">
+
+      <div class="page-toolbar">
+        <div>
+          <h1 class="section-title">Quotations</h1>
+          <p class="section-subtitle">Create and track product quotes sent to customers.</p>
+        </div>
+        <button class="btn btn-primary" id="addQuoteBtn">+ New Quotation</button>
+      </div>
+
+      <div class="card" style="padding: 0;">
+        <table>
+          <thead>
+            <tr>
+              <th>Quote #</th>
+              <th>Customer</th>
+              <th>Date</th>
+              <th>Status</th>
+              <th class="text-right">Total</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="quotesTableBody">
+            <tr><td colspan="6" class="empty-state">Loading quotations…</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<!-- ============================== CREATE QUOTATION MODAL ============================== -->
+<div class="modal-overlay" id="quoteModal">
+  <div class="modal-box modal-wide">
+    <div class="modal-header">
+      <h2>New Quotation</h2>
+      <button class="modal-close" id="closeModalBtn">&times;</button>
+    </div>
+    <form id="quoteForm">
+      <div class="modal-body">
+
+        <div class="card" style="background: var(--info-bg); border-color: var(--info); margin-bottom:16px; padding:12px 16px;">
+          <span style="font-size:12.5px; color: var(--navy);">Quote numbers are written on your paper quotation pad — type the same number here so both records match.</span>
+        </div>
+
+        <div class="form-row">
+          <div class="field">
+            <label for="quoteNumber">Quote Number *</label>
+            <input type="text" id="quoteNumber" required placeholder="e.g. 2218" />
+            <div class="text-faint" id="nextNumberHint" style="font-size:11.5px; margin-top:4px;"></div>
+          </div>
+          <div class="field">
+            <label for="quoteDate">Quote Date *</label>
+            <input type="date" id="quoteDate" required />
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="field">
+            <label for="quoteCustomer">Customer *</label>
+            <select id="quoteCustomer" required>
+              <option value="">Select a customer…</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="quoteBranch">Branch / Site</label>
+            <select id="quoteBranch">
+              <option value="">No specific branch</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="field">
+            <label for="validityDays">Quotation Validity (days)</label>
+            <input type="number" id="validityDays" min="0" placeholder="e.g. 14" />
+          </div>
+          <div class="field">
+            <label for="deliveryPeriod">Delivery Period</label>
+            <input type="text" id="deliveryPeriod" placeholder="e.g. 18-20 weeks" />
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="field">
+            <label for="paymentTerms">Terms of Payment</label>
+            <input type="text" id="paymentTerms" placeholder="e.g. 30 days" />
+          </div>
+          <div class="field">
+            <label for="issuedBy">Issued By</label>
+            <input type="text" id="issuedBy" placeholder="Staff name as printed on the document" />
+          </div>
+        </div>
+
+        <hr style="border:none; border-top:1px solid var(--border); margin: 18px 0;" />
+
+        <label style="margin-bottom:10px;">Quotation Lines</label>
+        <table class="line-items-table">
+          <thead>
+            <tr>
+              <th style="width:35%;">Item / Description</th>
+              <th style="width:15%;">Qty</th>
+              <th style="width:20%;">Unit Price (ZMW)</th>
+              <th style="width:20%;" class="text-right">Line Total</th>
+              <th style="width:10%;"></th>
+            </tr>
+          </thead>
+          <tbody id="quoteLinesBody"></tbody>
+        </table>
+        <button type="button" class="btn btn-secondary btn-sm" id="addLineBtn" style="margin-top:8px;">+ Add Line</button>
+
+        <div class="text-right" style="margin-top:16px; font-size:13.5px;">
+          <div>Subtotal: ZMW <span id="quoteSubtotal">0.00</span></div>
+          <div>VAT (16%): ZMW <span id="quoteVat">0.00</span></div>
+          <div style="font-size:16px; margin-top:4px;"><strong>Total: ZMW <span id="quoteGrandTotal">0.00</span></strong></div>
+        </div>
+
+        <div class="field" style="margin-top:14px;">
+          <label for="quoteNotes">Notes</label>
+          <input type="text" id="quoteNotes" placeholder="Optional notes for this quote" />
+        </div>
+
+        <div class="login-error" id="formError" style="display:none; margin-top:14px;"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" id="cancelModalBtn">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="saveQuoteBtn">Save Quotation</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ============================== VIEW QUOTATION MODAL ============================== -->
+<div class="modal-overlay" id="viewQuoteModal">
+  <div class="modal-box modal-wide">
+    <div class="modal-header">
+      <h2 id="viewQuoteTitle">Quotation</h2>
+      <button class="modal-close" id="closeViewModalBtn">&times;</button>
+    </div>
+    <div class="modal-body" id="viewQuoteBody"></div>
+    <div class="modal-footer" id="viewQuoteFooter"></div>
+  </div>
+</div>
+
+<script src="supabase-config.js"></script>
+<script src="auth-guard.js"></script>
+<script src="nav.js"></script>
+<script>
+
+  let allQuotes = [];
+  let allCustomersList = [];
+  let allItemsForQuote = [];
+  let quoteLineCounter = 0;
+  const VAT_RATE = 0.16;
+
+  const quoteStatusBadge = (status) => {
+    const map = {
+      draft: "badge-info",
+      sent: "badge-warning",
+      accepted: "badge-success",
+      rejected: "badge-danger",
+      expired: "badge-danger",
+      converted: "badge-success",
+    };
+    return `<span class="badge ${map[status] || "badge-info"}">${status}</span>`;
+  };
+
+  // ----------------------------------------------------------------------
+  // Reference data
+  // ----------------------------------------------------------------------
+  async function loadReferenceData() {
+    const { data: customers } = await supabaseClient
+      .from("customers")
+      .select("id, name, customer_code")
+      .eq("active", true)
+      .order("name");
+    allCustomersList = customers || [];
+
+    const select = document.getElementById("quoteCustomer");
+    select.innerHTML =
+      `<option value="">Select a customer…</option>` +
+      allCustomersList.map((c) => `<option value="${c.id}">${c.name} (${c.customer_code})</option>`).join("");
+
+    const { data: items } = await supabaseClient
+      .from("items")
+      .select("id, name, item_code, selling_price")
+      .eq("active", true)
+      .eq("is_sellable", true)
+      .order("name");
+    allItemsForQuote = items || [];
+  }
+
+  document.getElementById("quoteCustomer").addEventListener("change", async (e) => {
+    const customerId = e.target.value;
+    const branchSelect = document.getElementById("quoteBranch");
+
+    if (!customerId) {
+      branchSelect.innerHTML = `<option value="">No specific branch</option>`;
+      return;
+    }
+
+    const { data: branches } = await supabaseClient
+      .from("customer_branches")
+      .select("id, branch_name, branch_code")
+      .eq("customer_id", customerId)
+      .eq("active", true)
+      .order("branch_name");
+
+    branchSelect.innerHTML =
+      `<option value="">No specific branch</option>` +
+      (branches || []).map((b) => `<option value="${b.id}">${b.branch_name} (${b.branch_code})</option>`).join("");
+  });
+
+  async function showNextNumberHint() {
+    const { data } = await supabaseClient.from("v_next_quote_number_hint").select("*").single();
+    const hintEl = document.getElementById("nextNumberHint");
+    if (data) {
+      hintEl.textContent = `Last used: ${data.last_number}. Suggested next: ${data.suggested_next}`;
+    }
+  }
+
+  // ----------------------------------------------------------------------
+  // Quotations list
+  // ----------------------------------------------------------------------
+  async function loadQuotes() {
+    const { data, error } = await supabaseClient
+      .from("quotations")
+      .select("*, customers(name, customer_code)")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("Error loading quotations:", error);
+      document.getElementById("quotesTableBody").innerHTML =
+        `<tr><td colspan="6" class="empty-state">Could not load quotations. ${error.message}</td></tr>`;
+      return;
+    }
+
+    allQuotes = data || [];
+    renderQuotesTable();
+  }
+
+  function renderQuotesTable() {
+    const body = document.getElementById("quotesTableBody");
+    if (allQuotes.length === 0) {
+      body.innerHTML = `<tr><td colspan="6" class="empty-state">No quotations yet. Click "New Quotation" to create one.</td></tr>`;
+      return;
+    }
+
+    body.innerHTML = allQuotes
+      .map(
+        (q) => `
+        <tr>
+          <td class="font-mono">${q.quote_number}</td>
+          <td>${q.customers ? q.customers.name : "—"}</td>
+          <td>${q.quote_date}</td>
+          <td>${quoteStatusBadge(q.status)}</td>
+          <td class="text-right">ZMW ${Number(q.total).toLocaleString("en-ZM", { minimumFractionDigits: 2 })}</td>
+          <td class="text-right"><button class="icon-btn" onclick="openViewModal('${q.id}')">View</button></td>
+        </tr>`
+      )
+      .join("");
+  }
+
+  // ----------------------------------------------------------------------
+  // Create quotation: dynamic lines
+  // ----------------------------------------------------------------------
+  function addQuoteLineRow() {
+    quoteLineCounter++;
+    const rowId = `qline_${quoteLineCounter}`;
+    const itemOptions = allItemsForQuote
+      .map((it) => `<option value="${it.id}" data-price="${it.selling_price}" data-name="${it.name}">${it.name} (${it.item_code})</option>`)
+      .join("");
+
+    const row = document.createElement("tr");
+    row.id = rowId;
+    row.innerHTML = `
+      <td>
+        <select class="qline-item-select" onchange="onQuoteItemChange('${rowId}')">
+          <option value="">Select item, or type below…</option>
+          ${itemOptions}
+        </select>
+        <input type="text" class="qline-description" placeholder="Free-text description (optional override)" style="margin-top:4px; font-size:12.5px;" />
+      </td>
+      <td><input type="number" class="qline-qty" min="0.01" step="0.01" value="1" oninput="recalcQuoteLine('${rowId}')" /></td>
+      <td><input type="number" class="qline-price" min="0" step="0.01" value="0" oninput="recalcQuoteLine('${rowId}')" /></td>
+      <td class="text-right qline-total" data-value="0">0.00</td>
+      <td class="text-right"><button type="button" class="icon-btn danger" onclick="removeQuoteLine('${rowId}')">Remove</button></td>
+    `;
+    document.getElementById("quoteLinesBody").appendChild(row);
+  }
+
+  function onQuoteItemChange(rowId) {
+    const row = document.getElementById(rowId);
+    const select = row.querySelector(".qline-item-select");
+    const selectedOption = select.options[select.selectedIndex];
+    if (selectedOption && selectedOption.value) {
+      row.querySelector(".qline-price").value = Number(selectedOption.getAttribute("data-price") || 0).toFixed(2);
+      row.querySelector(".qline-description").value = selectedOption.getAttribute("data-name") || "";
+    }
+    recalcQuoteLine(rowId);
+  }
+
+  function recalcQuoteLine(rowId) {
+    const row = document.getElementById(rowId);
+    const qty = parseFloat(row.querySelector(".qline-qty").value) || 0;
+    const price = parseFloat(row.querySelector(".qline-price").value) || 0;
+    const total = qty * price;
+    row.querySelector(".qline-total").textContent = total.toLocaleString("en-ZM", { minimumFractionDigits: 2 });
+    row.querySelector(".qline-total").setAttribute("data-value", total);
+    recalcQuoteTotals();
+  }
+
+  function removeQuoteLine(rowId) {
+    document.getElementById(rowId).remove();
+    recalcQuoteTotals();
+  }
+
+  function recalcQuoteTotals() {
+    const totals = Array.from(document.querySelectorAll(".qline-total")).map((el) => parseFloat(el.getAttribute("data-value")) || 0);
+    const subtotal = totals.reduce((sum, t) => sum + t, 0);
+    const vat = subtotal * VAT_RATE;
+    const grand = subtotal + vat;
+
+    document.getElementById("quoteSubtotal").textContent = subtotal.toLocaleString("en-ZM", { minimumFractionDigits: 2 });
+    document.getElementById("quoteVat").textContent = vat.toLocaleString("en-ZM", { minimumFractionDigits: 2 });
+    document.getElementById("quoteGrandTotal").textContent = grand.toLocaleString("en-ZM", { minimumFractionDigits: 2 });
+  }
+
+  async function resetQuoteForm() {
+    document.getElementById("quoteForm").reset();
+    document.getElementById("quoteLinesBody").innerHTML = "";
+    document.getElementById("quoteSubtotal").textContent = "0.00";
+    document.getElementById("quoteVat").textContent = "0.00";
+    document.getElementById("quoteGrandTotal").textContent = "0.00";
+    document.getElementById("formError").style.display = "none";
+    document.getElementById("quoteDate").valueAsDate = new Date();
+    document.getElementById("quoteBranch").innerHTML = `<option value="">No specific branch</option>`;
+    await showNextNumberHint();
+    addQuoteLineRow();
+  }
+
+  document.getElementById("addQuoteBtn").addEventListener("click", async () => {
+    await resetQuoteForm();
+    document.getElementById("quoteModal").classList.add("open");
+  });
+
+  document.getElementById("addLineBtn").addEventListener("click", addQuoteLineRow);
+
+  function closeQuoteModal() {
+    document.getElementById("quoteModal").classList.remove("open");
+  }
+  document.getElementById("closeModalBtn").addEventListener("click", closeQuoteModal);
+  document.getElementById("cancelModalBtn").addEventListener("click", closeQuoteModal);
+  document.getElementById("quoteModal").addEventListener("click", (e) => {
+    if (e.target.id === "quoteModal") closeQuoteModal();
+  });
+
+  document.getElementById("quoteForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const formError = document.getElementById("formError");
+    formError.style.display = "none";
+
+    const customerId = document.getElementById("quoteCustomer").value;
+    if (!customerId) {
+      formError.textContent = "Please select a customer.";
+      formError.style.display = "block";
+      return;
+    }
+
+    const lineRows = Array.from(document.querySelectorAll("#quoteLinesBody tr"));
+    const lines = lineRows
+      .map((row) => {
+        const select = row.querySelector(".qline-item-select");
+        const itemId = select.value || null;
+        const description = row.querySelector(".qline-description").value.trim() ||
+          (select.options[select.selectedIndex] ? select.options[select.selectedIndex].getAttribute("data-name") : "");
+        const qty = parseFloat(row.querySelector(".qline-qty").value) || 0;
+        const price = parseFloat(row.querySelector(".qline-price").value) || 0;
+        return { itemId, description, qty, price };
+      })
+      .filter((l) => l.description && l.qty > 0);
+
+    if (lines.length === 0) {
+      formError.textContent = "Please add at least one line with a description and quantity.";
+      formError.style.display = "block";
+      return;
+    }
+
+    const subtotal = lines.reduce((sum, l) => sum + l.qty * l.price, 0);
+    const vat = subtotal * VAT_RATE;
+    const total = subtotal + vat;
+
+    const saveBtn = document.getElementById("saveQuoteBtn");
+    saveBtn.disabled = true;
+    saveBtn.textContent = "Saving...";
+
+    const { data: { user } } = await supabaseClient.auth.getUser();
+
+    const quoteDateVal = document.getElementById("quoteDate").value;
+    const validityDays = document.getElementById("validityDays").value;
+    let validUntil = null;
+    if (validityDays && quoteDateVal) {
+      const d = new Date(quoteDateVal);
+      d.setDate(d.getDate() + parseInt(validityDays, 10));
+      validUntil = d.toISOString().split("T")[0];
+    }
+
+    const { data: newQuote, error: quoteError } = await supabaseClient
+      .from("quotations")
+      .insert({
+        quote_number: document.getElementById("quoteNumber").value.trim(),
+        quote_type: "product",
+        customer_id: customerId,
+        customer_branch_id: document.getElementById("quoteBranch").value || null,
+        quote_date: quoteDateVal,
+        validity_days: validityDays ? parseInt(validityDays, 10) : null,
+        valid_until: validUntil,
+        delivery_period: document.getElementById("deliveryPeriod").value.trim() || null,
+        payment_terms: document.getElementById("paymentTerms").value.trim() || null,
+        issued_by: document.getElementById("issuedBy").value.trim() || null,
+        subtotal: subtotal,
+        tax_amount: vat,
+        total: total,
+        notes: document.getElementById("quoteNotes").value.trim() || null,
+        created_by: user.id,
+        status: "draft",
+      })
+      .select()
+      .single();
+
+    if (quoteError) {
+      formError.textContent = quoteError.message.includes("duplicate")
+        ? "That quote number is already in use. Please use a different number."
+        : quoteError.message;
+      formError.style.display = "block";
+      saveBtn.disabled = false;
+      saveBtn.textContent = "Save Quotation";
+      return;
+    }
+
+    const lineInserts = lines.map((l, idx) => ({
+      quotation_id: newQuote.id,
+      item_id: l.itemId,
+      description: l.description,
+      qty: l.qty,
+      unit_price: l.price,
+      sort_order: idx,
+    }));
+
+    const { error: linesError } = await supabaseClient.from("quotation_lines").insert(lineInserts);
+
+    saveBtn.disabled = false;
+    saveBtn.textContent = "Save Quotation";
+
+    if (linesError) {
+      formError.textContent = "Quotation was created but lines failed to save: " + linesError.message;
+      formError.style.display = "block";
+      return;
+    }
+
+    closeQuoteModal();
+    loadQuotes();
+  });
+
+  // ----------------------------------------------------------------------
+  // View quotation modal
+  // ----------------------------------------------------------------------
+  async function openViewModal(quoteId) {
+    const q = allQuotes.find((x) => x.id === quoteId);
+    if (!q) return;
+
+    document.getElementById("viewQuoteTitle").textContent = `Quotation No. ${q.quote_number}`;
+
+    const { data: lines } = await supabaseClient
+      .from("quotation_lines")
+      .select("*")
+      .eq("quotation_id", quoteId)
+      .order("sort_order");
+
+    document.getElementById("viewQuoteBody").innerHTML = `
+      <div class="form-row" style="margin-bottom:16px;">
+        <div><div class="text-muted" style="font-size:12px;">Customer</div><strong>${q.customers ? q.customers.name : "—"}</strong></div>
+        <div><div class="text-muted" style="font-size:12px;">Status</div>${quoteStatusBadge(q.status)}</div>
+      </div>
+      <div class="form-row" style="margin-bottom:16px;">
+        <div><div class="text-muted" style="font-size:12px;">Quotation Validity</div>${q.validity_days ? q.validity_days + " days" : "—"}</div>
+        <div><div class="text-muted" style="font-size:12px;">Delivery Period</div>${q.delivery_period || "—"}</div>
+      </div>
+      <div class="form-row" style="margin-bottom:16px;">
+        <div><div class="text-muted" style="font-size:12px;">Terms of Payment</div>${q.payment_terms || "—"}</div>
+        <div><div class="text-muted" style="font-size:12px;">Issued By</div>${q.issued_by || "—"}</div>
+      </div>
+      <table>
+        <thead><tr><th>Description</th><th>Qty</th><th>Unit Price</th><th class="text-right">Total</th></tr></thead>
+        <tbody>
+          ${(lines || [])
+            .map(
+              (l) => `
+            <tr>
+              <td>${l.description}</td>
+              <td>${Number(l.qty).toLocaleString()}</td>
+              <td>ZMW ${Number(l.unit_price).toLocaleString("en-ZM", { minimumFractionDigits: 2 })}</td>
+              <td class="text-right">ZMW ${Number(l.line_total).toLocaleString("en-ZM", { minimumFractionDigits: 2 })}</td>
+            </tr>`
+            )
+            .join("")}
+        </tbody>
+      </table>
+      <div class="text-right" style="margin-top:14px; font-size:13.5px;">
+        <div>Sub Total (ZMW): ${Number(q.subtotal).toLocaleString("en-ZM", { minimumFractionDigits: 2 })}</div>
+        <div>VAT @ 16%: ${Number(q.tax_amount).toLocaleString("en-ZM", { minimumFractionDigits: 2 })}</div>
+        <div style="font-size:16px; margin-top:4px;"><strong>Total (ZMW): ${Number(q.total).toLocaleString("en-ZM", { minimumFractionDigits: 2 })}</strong></div>
+      </div>
+    `;
+
+    const footer = document.getElementById("viewQuoteFooter");
+    let actionsHtml = "";
+    if (q.status === "draft") {
+      actionsHtml = `<button class="btn btn-secondary" onclick="updateQuoteStatus('${q.id}', 'sent')">Mark as Sent</button>`;
+    } else if (q.status === "sent") {
+      actionsHtml = `
+        <button class="btn btn-secondary" onclick="updateQuoteStatus('${q.id}', 'rejected')">Mark Rejected</button>
+        <button class="btn btn-primary" onclick="updateQuoteStatus('${q.id}', 'accepted')">Mark Accepted</button>`;
+    } else if (q.status === "accepted") {
+      actionsHtml = `<button class="btn btn-primary" onclick="convertToSalesOrder('${q.id}')">Convert to Sales Order</button>`;
+    }
+    footer.innerHTML = `<button type="button" class="btn btn-secondary" onclick="closeViewModal()">Close</button>${actionsHtml}`;
+
+    document.getElementById("viewQuoteModal").classList.add("open");
+  }
+
+  async function updateQuoteStatus(quoteId, newStatus) {
+    const { error } = await supabaseClient.from("quotations").update({ status: newStatus }).eq("id", quoteId);
+    if (error) {
+      alert("Could not update status: " + error.message);
+      return;
+    }
+    closeViewModal();
+    loadQuotes();
+  }
+
+  async function convertToSalesOrder(quoteId) {
+    if (!confirm("Create a sales order from this quotation? You'll be able to manage fulfillment and invoicing from the Sales Orders page.")) return;
+
+    const q = allQuotes.find((x) => x.id === quoteId);
+    const { data: lines } = await supabaseClient.from("quotation_lines").select("*").eq("quotation_id", quoteId);
+
+    const { data: { user } } = await supabaseClient.auth.getUser();
+    const { data: orderNumber, error: numError } = await supabaseClient.rpc("next_document_number", { p_prefix: "SO" });
+    if (numError) {
+      alert("Could not generate a sales order number: " + numError.message);
+      return;
+    }
+
+    const { data: newOrder, error: orderError } = await supabaseClient
+      .from("sales_orders")
+      .insert({
+        order_number: orderNumber,
+        quotation_id: quoteId,
+        customer_id: q.customer_id,
+        customer_branch_id: q.customer_branch_id,
+        created_by: user.id,
+        status: "pending",
+      })
+      .select()
+      .single();
+
+    if (orderError) {
+      alert("Could not create sales order: " + orderError.message);
+      return;
+    }
+
+    const orderLineInserts = (lines || [])
+      .filter((l) => l.item_id) // sales order lines require a real item (not free-text)
+      .map((l) => ({
+        sales_order_id: newOrder.id,
+        item_id: l.item_id,
+        qty: l.qty,
+        unit_price: l.unit_price,
+      }));
+
+    if (orderLineInserts.length > 0) {
+      await supabaseClient.from("sales_order_lines").insert(orderLineInserts);
+    }
+
+    await supabaseClient.from("quotations").update({ status: "converted" }).eq("id", quoteId);
+
+    closeViewModal();
+    loadQuotes();
+    alert(`Sales Order ${orderNumber} created. You can manage it from the Sales Orders page.`);
+  }
+
+  function closeViewModal() {
+    document.getElementById("viewQuoteModal").classList.remove("open");
+  }
+  document.getElementById("closeViewModalBtn").addEventListener("click", closeViewModal);
+  document.getElementById("viewQuoteModal").addEventListener("click", (e) => {
+    if (e.target.id === "viewQuoteModal") closeViewModal();
+  });
+
+  // ----------------------------------------------------------------------
+  // Page init
+  // ----------------------------------------------------------------------
+  (async () => {
+    const profile = await requireAuth();
+    if (!profile) return;
+    if (!guardRole(profile, ["sales"])) return;
+
+    renderSidebar(profile);
+    renderUserChrome(profile);
+
+    await loadReferenceData();
+    await loadQuotes();
+  })();
+
+</script>
+</body>
+</html>

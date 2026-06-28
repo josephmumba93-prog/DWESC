@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Invoices — DW Engineering IPSS</title>
+<link rel="stylesheet" href="style.css" />
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+<div class="app-shell">
+
+  <nav class="sidebar">
+    <div class="sidebar-brand">
+      <img src="dw-logo.png" alt="DW Engineering" />
+      <div class="sidebar-brand-text">DW ENGINEERING<br/>SOLUTION &amp; CONTRACTORS</div>
+    </div>
+    <div class="sidebar-nav" id="sidebarNav"></div>
+    <div class="sidebar-footer">DW Engineering IPSS<br/>v1.0 &middot; Internal Use Only</div>
+  </nav>
+
+  <div class="main-area">
+    <header class="topbar">
+      <div class="topbar-title">Invoices</div>
+      <div class="topbar-user">
+        <span class="role-badge" id="roleBadge"></span>
+        <span class="user-name" id="userName"></span>
+        <button class="btn-link" id="signOutBtn">Sign out</button>
+      </div>
+    </header>
+
+    <main class="content">
+
+      <div class="page-toolbar">
+        <div>
+          <h1 class="section-title">Invoices</h1>
+          <p class="section-subtitle">Bill customers for products or services, and track payments received.</p>
+        </div>
+        <button class="btn btn-primary" id="addInvoiceBtn">+ New Invoice</button>
+      </div>
+
+      <div class="card" style="padding: 0;">
+        <table>
+          <thead>
+            <tr>
+              <th>Invoice #</th>
+              <th>Customer</th>
+              <th>Date</th>
+              <th>Status</th>
+              <th class="text-right">Total</th>
+              <th class="text-right">Balance Due</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="invoicesTableBody">
+            <tr><td colspan="7" class="empty-state">Loading invoices…</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<!-- ============================== CREATE INVOICE MODAL ============================== -->
+<div class="modal-overlay" id="invoiceModal">
+  <div class="modal-box modal-wide">
+    <div class="modal-header">
+      <h2>New Invoice</h2>
+      <button class="modal-close" id="closeModalBtn">&times;</button>
+    </div>
+    <form id="invoiceForm">
+      <div class="modal-body">
+
+        <div class="card" style="background: var(--info-bg); border-color: var(--info); margin-bottom:16px; padding:12px 16px;">
+          <span style="font-size:12.5px; color: var(--navy);">Invoice numbers are written on your paper invoice pad — type the same number here so both records match.</span>
+        </div>
+
+        <div class="form-row">
+          <div class="field">
+            <label for="invoiceNumber">Invoice Number *</label>
+            <input type="text" id="invoiceNumber" required placeholder="e.g. 1045" />
+            <div class="text-faint" id="nextNumberHint" style="font-size:11.5px; margin-top:4px;"></div>
+          </div>
+          <div class="field">
+            <label for="invoiceDate">Invoice Date *</label>
+            <input type="date" id="invoiceDate" required />
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="field">
+            <label for="salesOrderSelect">From Sales Order (optional)</label>
+            <select id="salesOrderSelect">
+              <option value="">Create from scratch instead</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="invoiceCustomer">Customer *</label>
+            <select id="invoiceCustomer" required>
+              <option value="">Select a customer…</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="field">
+            <label for="dueDate">Due Date</label>
+            <input type="date" id="dueDate" />
+          </div>
+          <div class="field">
+            <label for="invPaymentTerms">Payment Terms</label>
+            <input type="text" id="invPaymentTerms" placeholder="e.g. 30 days" />
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="invIssuedBy">Issued By</label>
+          <input type="text" id="invIssuedBy" placeholder="Staff name as printed on the document" />
+        </div>
+
+        <hr style="border:none; border-top:1px solid var(--border); margin: 18px 0;" />
+
+        <label style="margin-bottom:10px;">Invoice Lines</label>
+        <table class="line-items-table">
+          <thead>
+            <tr>
+              <th style="width:35%;">Item / Description</th>
+              <th style="width:15%;">Qty</th>
+              <th style="width:20%;">Unit Price (ZMW)</th>
+              <th style="width:20%;" class="text-right">Line Total</th>
+              <th style="width:10%;"></th>
+            </tr>
+          </thead>
+          <tbody id="invoiceLinesBody"></tbody>
+        </table>
+        <button type="button" class="btn btn-secondary btn-sm" id="addLineBtn" style="margin-top:8px;">+ Add Line</button>
+
+        <div class="text-right" style="margin-top:16px; font-size:13.5px;">
+          <div>Subtotal: ZMW <span id="invSubtotal">0.00</span></div>
+          <div>VAT (16%): ZMW <span id="invVat">0.00</span></div>
+          <div style="font-size:16px; margin-top:4px;"><strong>Total: ZMW <span id="invGrandTotal">0.00</span></strong></div>
+        </div>
+
+        <div class="login-error" id="formError" style="display:none; margin-top:14px;"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" id="cancelModalBtn">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="saveInvoiceBtn">Save Invoice</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ============================== VIEW INVOICE MODAL ============================== -->
+<div class="modal-overlay" id="viewInvoiceModal">
+  <div class="modal-box modal-wide">
+    <div class="modal-header">
+      <h2 id="viewInvoiceTitle">Invoice</h2>
+      <button class="modal-close" id="closeViewModalBtn">&times;</button>
+    </div>
+    <div class="modal-body" id="viewInvoiceBody"></div>
+    <div class="modal-footer" id="viewInvoiceFooter"></div>
+  </div>
+</div>
+
+<!-- ============================== RECORD PAYMENT SUB-MODAL ============================== -->
+<div class="modal-overlay" id="paymentModal" style="z-index: 110;">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h2>Record Payment</h2>
+      <button class="modal-close" id="closePaymentModalBtn">&times;</button>
+    </div>
+    <form id="paymentForm">
+      <div class="modal-body">
+        <input type="hidden" id="paymentInvoiceId" />
+
+        <div class="field">
+          <label for="paymentAmount">Amount (ZMW) *</label>
+          <input type="number" id="paymentAmount" required min="0.01" step="0.01" />
+          <div class="text-faint" id="balanceDueHint" style="font-size:11.5px; margin-top:4px;"></div>
+        </div>
+        <div class="form-row">
+          <div class="field">
+            <label for="paymentMethod">Payment Method *</label>
+            <select id="paymentMethod" required>
+              <option value="bank_transfer">Bank Transfer</option>
+              <option value="cash">Cash</option>
+              <option value="mobile_money">Mobile Money</option>
+              <option value="cheque">Cheque</option>
+              <option value="card">Card</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="paymentDate">Payment Date *</label>
+            <input type="date" id="paymentDate" required />
+          </div>
+        </div>
+        <div class="field">
+          <label for="paymentReference">Reference Number</label>
+          <input type="text" id="paymentReference" placeholder="Transaction ref, cheque no., etc." />
+        </div>
+        <div class="login-error" id="paymentFormError" style="display:none;"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" id="cancelPaymentBtn">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="savePaymentBtn">Record Payment</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="supabase-config.js"></script>
+<script src="auth-guard.js"></script>
+<script src="nav.js"></script>
+<script>
+
+  let allInvoices = [];
+  let confirmedSalesOrders = [];
+  let allItemsForInvoice = [];
+  let invLineCounter = 0;
+  const VAT_RATE = 0.16;
+
+  const invoiceStatusBadge = (status) => {
+    const map = {
+      draft: "badge-info",
+      issued: "badge-warning",
+      partially_paid: "badge-warning",
+      paid: "badge-success",
+      overdue: "badge-danger",
+      cancelled: "badge-danger",
+    };
+    return `<span class="badge ${map[status] || "badge-info"}">${status.replace(/_/g, " ")}</span>`;
+  };
+
+  // ----------------------------------------------------------------------
+  // Reference data
+  // ----------------------------------------------------------------------
+  async function loadReferenceData() {
+    const { data: sos } = await supabaseClient
+      .from("sales_orders")
+      .select("id, order_number, customer_id, customer_branch_id, customers(name)")
+      .eq("status", "confirmed")
+      .order("order_date", { ascending: false });
+    confirmedSalesOrders = sos || [];
+
+    const soSelect = document.getElementById("salesOrderSelect");
+    soSelect.innerHTML =
+      `<option value="">Create from scratch instead</option>` +
+      confirmedSalesOrders.map((so) => `<option value="${so.id}">${so.order_number} — ${so.customers ? so.customers.name : ""}</option>`).join("");
+
+    const { data: customers } = await supabaseClient
+      .from("customers")
+      .select("id, name, customer_code")
+      .eq("active", true)
+      .order("name");
+    const custSelect = document.getElementById("invoiceCustomer");
+    custSelect.innerHTML =
+      `<option value="">Select a customer…</option>` +
+      (customers || []).map((c) => `<option value="${c.id}">${c.name} (${c.customer_code})</option>`).join("");
+
+    const { data: items } = await supabaseClient
+      .from("items")
+      .select("id, name, item_code, selling_price")
+      .eq("active", true)
+      .eq("is_sellable", true)
+      .order("name");
+    allItemsForInvoice = items || [];
+  }
+
+  document.getElementById("salesOrderSelect").addEventListener("change", async (e) => {
+    const soId = e.target.value;
+    if (!soId) return;
+
+    const so = confirmedSalesOrders.find((x) => x.id === soId);
+    if (so) document.getElementById("invoiceCustomer").value = so.customer_id;
+
+    const { data: lines } = await supabaseClient
+      .from("sales_order_lines")
+      .select("*, items(name, item_code, selling_price)")
+      .eq("sales_order_id", soId);
+
+    document.getElementById("invoiceLinesBody").innerHTML = "";
+    (lines || []).forEach((l) => {
+      addInvoiceLineRow({
+        itemId: l.item_id,
+        description: l.items ? l.items.name : "",
+        qty: Number(l.qty) - Number(l.qty_invoiced),
+        price: l.unit_price,
+      });
+    });
+    recalcInvoiceTotals();
+  });
+
+  async function showNextNumberHint() {
+    const { data } = await supabaseClient.from("v_next_invoice_number_hint").select("*").single();
+    const hintEl = document.getElementById("nextNumberHint");
+    if (data) {
+      hintEl.textContent = data.last_number > 0
+        ? `Last used: ${data.last_number}. Suggested next: ${data.suggested_next}`
+        : `No invoices yet — start with whatever number matches your paper records.`;
+    }
+  }
+
+  // ----------------------------------------------------------------------
+  // Invoices list
+  // ----------------------------------------------------------------------
+  async function loadInvoices() {
+    const { data, error } = await supabaseClient
+      .from("invoices")
+      .select("*, customers(name, customer_code)")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("Error loading invoices:", error);
+      document.getElementById("invoicesTableBody").innerHTML =
+        `<tr><td colspan="7" class="empty-state">Could not load invoices. ${error.message}</td></tr>`;
+      return;
+    }
+
+    allInvoices = data || [];
+    renderInvoicesTable();
+  }
+
+  function renderInvoicesTable() {
+    const body = document.getElementById("invoicesTableBody");
+    if (allInvoices.length === 0) {
+      body.innerHTML = `<tr><td colspan="7" class="empty-state">No invoices yet. Click "New Invoice" to create one.</td></tr>`;
+      return;
+    }
+
+    body.innerHTML = allInvoices
+      .map(
+        (inv) => `
+        <tr>
+          <td class="font-mono">${inv.invoice_number}</td>
+          <td>${inv.customers ? inv.customers.name : "—"}</td>
+          <td>${inv.invoice_date}</td>
+          <td>${invoiceStatusBadge(inv.status)}</td>
+          <td class="text-right">ZMW ${Number(inv.total).toLocaleString("en-ZM", { minimumFractionDigits: 2 })}</td>
+          <td class="text-right">${Number(inv.balance_due) > 0
+              ? `ZMW ${Number(inv.balance_due).toLocaleString("en-ZM", { minimumFractionDigits: 2 })}`
+              : `<span class="text-muted">Paid in full</span>`}</td>
+          <td class="text-right"><button class="icon-btn" onclick="openViewModal('${inv.id}')">View</button></td>
+        </tr>`
+      )
+      .join("");
+  }
+
+  // ----------------------------------------------------------------------
+  // Create invoice: dynamic lines
+  // ----------------------------------------------------------------------
+  function addInvoiceLineRow(prefill) {
+    invLineCounter++;
+    const rowId = `iline_${invLineCounter}`;
+    const itemOptions = allItemsForInvoice
+      .map((it) => `<option value="${it.id}" data-price="${it.selling_price}" data-name="${it.name}" ${prefill && prefill.itemId === it.id ? "selected" : ""}>${it.name} (${it.item_code})</option>`)
+      .join("");
+
+    const row = document.createElement("tr");
+    row.id = rowId;
+    row.innerHTML = `
+      <td>
+        <select class="iline-item-select" onchange="onInvoiceItemChange('${rowId}')">
+          <option value="">Select item, or type below…</option>
+          ${itemOptions}
+        </select>
+        <input type="text" class="iline-description" placeholder="Free-text description (optional override)" style="margin-top:4px; font-size:12.5px;" value="${prefill ? prefill.description || "" : ""}" />
+      </td>
+      <td><input type="number" class="iline-qty" min="0.01" step="0.01" value="${prefill ? prefill.qty || 1 : 1}" oninput="recalcInvoiceLine('${rowId}')" /></td>
+      <td><input type="number" class="iline-price" min="0" step="0.01" value="${prefill ? prefill.price || 0 : 0}" oninput="recalcInvoiceLine('${rowId}')" /></td>
+      <td class="text-right iline-total" data-value="0">0.00</td>
+      <td class="text-right"><button type="button" class="icon-btn danger" onclick="removeInvoiceLine('${rowId}')">Remove</button></td>
+    `;
+    document.getElementById("invoiceLinesBody").appendChild(row);
+    recalcInvoiceLine(rowId);
+  }
+
+  function onInvoiceItemChange(rowId) {
+    const row = document.getElementById(rowId);
+    const select = row.querySelector(".iline-item-select");
+    const selectedOption = select.options[select.selectedIndex];
+    if (selectedOption && selectedOption.value) {
+      row.querySelector(".iline-price").value = Number(selectedOption.getAttribute("data-price") || 0).toFixed(2);
+      row.querySelector(".iline-description").value = selectedOption.getAttribute("data-name") || "";
+    }
+    recalcInvoiceLine(rowId);
+  }
+
+  function recalcInvoiceLine(rowId) {
+    const row = document.getElementById(rowId);
+    const qty = parseFloat(row.querySelector(".iline-qty").value) || 0;
+    const price = parseFloat(row.querySelector(".iline-price").value) || 0;
+    const total = qty * price;
+    row.querySelector(".iline-total").textContent = total.toLocaleString("en-ZM", { minimumFractionDigits: 2 });
+    row.querySelector(".iline-total").setAttribute("data-value", total);
+    recalcInvoiceTotals();
+  }
+
+  function removeInvoiceLine(rowId) {
+    document.getElementById(rowId).remove();
+    recalcInvoiceTotals();
+  }
+
+  function recalcInvoiceTotals() {
+    const totals = Array.from(document.querySelectorAll(".iline-total")).map((el) => parseFloat(el.getAttribute("data-value")) || 0);
+    const subtotal = totals.reduce((sum, t) => sum + t, 0);
+    const vat = subtotal * VAT_RATE;
+    const grand = subtotal + vat;
+
+    document.getElementById("invSubtotal").textContent = subtotal.toLocaleString("en-ZM", { minimumFractionDigits: 2 });
+    document.getElementById("invVat").textContent = vat.toLocaleString("en-ZM", { minimumFractionDigits: 2 });
+    document.getElementById("invGrandTotal").textContent = grand.toLocaleString("en-ZM", { minimumFractionDigits: 2 });
+  }
+
+  async function resetInvoiceForm() {
+    document.getElementById("invoiceForm").reset();
+    document.getElementById("invoiceLinesBody").innerHTML = "";
+    document.getElementById("invSubtotal").textContent = "0.00";
+    document.getElementById("invVat").textContent = "0.00";
+    document.getElementById("invGrandTotal").textContent = "0.00";
+    document.getElementById("formError").style.display = "none";
+    document.getElementById("invoiceDate").valueAsDate = new Date();
+    await showNextNumberHint();
+    addInvoiceLineRow();
+  }
+
+  document.getElementById("addInvoiceBtn").addEventListener("click", async () => {
+    await resetInvoiceForm();
+    document.getElementById("invoiceModal").classList.add("open");
+  });
+
+  document.getElementById("addLineBtn").addEventListener("click", () => addInvoiceLineRow());
+
+  function closeInvoiceModal() {
+    document.getElementById("invoiceModal").classList.remove("open");
+  }
+  document.getElementById("closeModalBtn").addEventListener("click", closeInvoiceModal);
+  document.getElementById("cancelModalBtn").addEventListener("click", closeInvoiceModal);
+  document.getElementById("invoiceModal").addEventListener("click", (e) => {
+    if (e.target.id === "invoiceModal") closeInvoiceModal();
+  });
+
+  document.getElementById("invoiceForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const formError = document.getElementById("formError");
+    formError.style.display = "none";
+
+    const customerId = document.getElementById("invoiceCustomer").value;
+    if (!customerId) {
+      formError.textContent = "Please select a customer.";
+      formError.style.display = "block";
+      return;
+    }
+
+    const lineRows = Array.from(document.querySelectorAll("#invoiceLinesBody tr"));
+    const lines = lineRows
+      .map((row) => {
+        const select = row.querySelector(".iline-item-select");
+        const itemId = select.value || null;
+        const description = row.querySelector(".iline-description").value.trim() ||
+          (select.options[select.selectedIndex] ? select.options[select.selectedIndex].getAttribute("data-name") : "");
+        const qty = parseFloat(row.querySelector(".iline-qty").value) || 0;
+        const price = parseFloat(row.querySelector(".iline-price").value) || 0;
+        return { itemId, description, qty, price };
+      })
+      .filter((l) => l.description && l.qty > 0);
+
+    if (lines.length === 0) {
+      formError.textContent = "Please add at least one line with a description and quantity.";
+      formError.style.display = "block";
+      return;
+    }
+
+    const subtotal = lines.reduce((sum, l) => sum + l.qty * l.price, 0);
+    const vat = subtotal * VAT_RATE;
+    const total = subtotal + vat;
+    const soId = document.getElementById("salesOrderSelect").value || null;
+
+    const saveBtn = document.getElementById("saveInvoiceBtn");
+    saveBtn.disabled = true;
+    saveBtn.textContent = "Saving...";
+
+    const { data: { user } } = await supabaseClient.auth.getUser();
+
+    const so = soId ? confirmedSalesOrders.find((x) => x.id === soId) : null;
+
+    const { data: newInvoice, error: invError } = await supabaseClient
+      .from("invoices")
+      .insert({
+        invoice_number: document.getElementById("invoiceNumber").value.trim(),
+        invoice_type: "product",
+        customer_id: customerId,
+        customer_branch_id: so ? so.customer_branch_id : null,
+        sales_order_id: soId,
+        invoice_date: document.getElementById("invoiceDate").value,
+        due_date: document.getElementById("dueDate").value || null,
+        payment_terms: document.getElementById("invPaymentTerms").value.trim() || null,
+        issued_by: document.getElementById("invIssuedBy").value.trim() || null,
+        subtotal: subtotal,
+        tax_amount: vat,
+        total: total,
+        created_by: user.id,
+        status: "issued",
+      })
+      .select()
+      .single();
+
+    if (invError) {
+      formError.textContent = invError.message.includes("duplicate")
+        ? "That invoice number is already in use. Please use a different number."
+        : invError.message;
+      formError.style.display = "block";
+      saveBtn.disabled = false;
+      saveBtn.textContent = "Save Invoice";
+      return;
+    }
+
+    const lineInserts = lines.map((l, idx) => ({
+      invoice_id: newInvoice.id,
+      item_id: l.itemId,
+      description: l.description,
+      qty: l.qty,
+      unit_price: l.price,
+      sort_order: idx,
+    }));
+
+    const { error: linesError } = await supabaseClient.from("invoice_lines").insert(lineInserts);
+
+    saveBtn.disabled = false;
+    saveBtn.textContent = "Save Invoice";
+
+    if (linesError) {
+      formError.textContent = "Invoice was created but lines failed to save: " + linesError.message;
+      formError.style.display = "block";
+      return;
+    }
+
+    // If invoiced from a sales order, write stock_movements for each line
+    // (sales_issue) and bump qty_invoiced on the originating order lines.
+    if (soId) {
+      const { data: soLines } = await supabaseClient
+        .from("sales_order_lines")
+        .select("*")
+        .eq("sales_order_id", soId);
+
+      for (const l of lines) {
+        if (!l.itemId) continue;
+        const matchingSoLine = (soLines || []).find((sl) => sl.item_id === l.itemId);
+
+        await supabaseClient.from("stock_movements").insert({
+          item_id: l.itemId,
+          movement_type: "sales_issue",
+          qty_delta: -l.qty,
+          unit_cost: l.price,
+          reference_table: "invoices",
+          reference_id: newInvoice.id,
+          performed_by: user.id,
+        });
+
+        if (matchingSoLine) {
+          await supabaseClient
+            .from("sales_order_lines")
+            .update({ qty_invoiced: Number(matchingSoLine.qty_invoiced) + l.qty })
+            .eq("id", matchingSoLine.id);
+        }
+      }
+    }
+
+    closeInvoiceModal();
+    loadInvoices();
+  });
+
+  // ----------------------------------------------------------------------
+  // View invoice modal
+  // ----------------------------------------------------------------------
+  async function openViewModal(invoiceId) {
+    const inv = allInvoices.find((x) => x.id === invoiceId);
+    if (!inv) return;
+
+    document.getElementById("viewInvoiceTitle").textContent = `Invoice No. ${inv.invoice_number}`;
+
+    const { data: lines } = await supabaseClient
+      .from("invoice_lines")
+      .select("*")
+      .eq("invoice_id", invoiceId)
+      .order("sort_order");
+
+    const { data: payments } = await supabaseClient
+      .from("payments")
+      .select("*")
+      .eq("invoice_id", invoiceId)
+      .order("payment_date", { ascending: false });
+
+    document.getElementById("viewInvoiceBody").innerHTML = `
+      <div class="form-row" style="margin-bottom:16px;">
+        <div><div class="text-muted" style="font-size:12px;">Customer</div><strong>${inv.customers ? inv.customers.name : "—"}</strong></div>
+        <div><div class="text-muted" style="font-size:12px;">Status</div>${invoiceStatusBadge(inv.status)}</div>
+      </div>
+      <table>
+        <thead><tr><th>Description</th><th>Qty</th><th>Unit Price</th><th class="text-right">Total</th></tr></thead>
+        <tbody>
+          ${(lines || [])
+            .map(
+              (l) => `
+            <tr>
+              <td>${l.description}</td>
+              <td>${Number(l.qty).toLocaleString()}</td>
+              <td>ZMW ${Number(l.unit_price).toLocaleString("en-ZM", { minimumFractionDigits: 2 })}</td>
+              <td class="text-right">ZMW ${Number(l.line_total).toLocaleString("en-ZM", { minimumFractionDigits: 2 })}</td>
+            </tr>`
+            )
+            .join("")}
+        </tbody>
+      </table>
+      <div class="text-right" style="margin-top:14px; font-size:13.5px;">
+        <div>Sub Total (ZMW): ${Number(inv.subtotal).toLocaleString("en-ZM", { minimumFractionDigits: 2 })}</div>
+        <div>VAT @ 16%: ${Number(inv.tax_amount).toLocaleString("en-ZM", { minimumFractionDigits: 2 })}</div>
+        <div style="font-size:16px; margin-top:4px;"><strong>Total (ZMW): ${Number(inv.total).toLocaleString("en-ZM", { minimumFractionDigits: 2 })}</strong></div>
+        <div style="margin-top:6px;">Paid: ZMW ${Number(inv.amount_paid).toLocaleString("en-ZM", { minimumFractionDigits: 2 })}</div>
+        <div style="font-weight:700; color: ${Number(inv.balance_due) > 0 ? "var(--danger)" : "var(--success)"};">
+          Balance Due: ZMW ${Number(inv.balance_due).toLocaleString("en-ZM", { minimumFractionDigits: 2 })}
+        </div>
+      </div>
+      ${(payments || []).length > 0 ? `
+        <hr style="border:none; border-top:1px solid var(--border); margin: 16px 0;" />
+        <label style="margin-bottom:8px;">Payment History</label>
+        <table>
+          <thead><tr><th>Date</th><th>Method</th><th>Reference</th><th class="text-right">Amount</th></tr></thead>
+          <tbody>
+            ${payments.map((p) => `
+              <tr>
+                <td>${p.payment_date}</td>
+                <td>${p.payment_method.replace(/_/g, " ")}</td>
+                <td>${p.reference_number || "—"}</td>
+                <td class="text-right">ZMW ${Number(p.amount).toLocaleString("en-ZM", { minimumFractionDigits: 2 })}</td>
+              </tr>`).join("")}
+          </tbody>
+        </table>
+      ` : ""}
+    `;
+
+    const footer = document.getElementById("viewInvoiceFooter");
+    let actionsHtml = "";
+    if (Number(inv.balance_due) > 0 && inv.status !== "cancelled") {
+      actionsHtml = `<button class="btn btn-primary" onclick="openPaymentModal('${inv.id}')">Record Payment</button>`;
+    }
+    footer.innerHTML = `<button type="button" class="btn btn-secondary" onclick="closeViewModal()">Close</button>${actionsHtml}`;
+
+    document.getElementById("viewInvoiceModal").classList.add("open");
+  }
+
+  function closeViewModal() {
+    document.getElementById("viewInvoiceModal").classList.remove("open");
+  }
+  document.getElementById("closeViewModalBtn").addEventListener("click", closeViewModal);
+  document.getElementById("viewInvoiceModal").addEventListener("click", (e) => {
+    if (e.target.id === "viewInvoiceModal") closeViewModal();
+  });
+
+  // ----------------------------------------------------------------------
+  // Record payment sub-modal
+  // ----------------------------------------------------------------------
+  function openPaymentModal(invoiceId) {
+    const inv = allInvoices.find((x) => x.id === invoiceId);
+    document.getElementById("paymentForm").reset();
+    document.getElementById("paymentInvoiceId").value = invoiceId;
+    document.getElementById("paymentDate").valueAsDate = new Date();
+    document.getElementById("paymentAmount").value = inv ? Number(inv.balance_due).toFixed(2) : "";
+    document.getElementById("balanceDueHint").textContent = inv ? `Balance due: ZMW ${Number(inv.balance_due).toLocaleString("en-ZM", { minimumFractionDigits: 2 })}` : "";
+    document.getElementById("paymentFormError").style.display = "none";
+    document.getElementById("paymentModal").classList.add("open");
+  }
+
+  function closePaymentModal() {
+    document.getElementById("paymentModal").classList.remove("open");
+  }
+  document.getElementById("closePaymentModalBtn").addEventListener("click", closePaymentModal);
+  document.getElementById("cancelPaymentBtn").addEventListener("click", closePaymentModal);
+  document.getElementById("paymentModal").addEventListener("click", (e) => {
+    if (e.target.id === "paymentModal") closePaymentModal();
+  });
+
+  document.getElementById("paymentForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const formError = document.getElementById("paymentFormError");
+    formError.style.display = "none";
+
+    const invoiceId = document.getElementById("paymentInvoiceId").value;
+    const inv = allInvoices.find((x) => x.id === invoiceId);
+    const amount = parseFloat(document.getElementById("paymentAmount").value) || 0;
+
+    if (amount <= 0) {
+      formError.textContent = "Please enter a payment amount greater than zero.";
+      formError.style.display = "block";
+      return;
+    }
+    if (amount > Number(inv.balance_due) + 0.01) {
+      formError.textContent = `Payment amount exceeds the balance due (ZMW ${Number(inv.balance_due).toLocaleString("en-ZM", { minimumFractionDigits: 2 })}).`;
+      formError.style.display = "block";
+      return;
+    }
+
+    const saveBtn = document.getElementById("savePaymentBtn");
+    saveBtn.disabled = true;
+    saveBtn.textContent = "Saving...";
+
+    const { data: { user } } = await supabaseClient.auth.getUser();
+
+    const { data: paymentNumber, error: numError } = await supabaseClient.rpc("next_document_number", { p_prefix: "PMT" });
+    if (numError) {
+      formError.textContent = "Could not generate a payment number: " + numError.message;
+      formError.style.display = "block";
+      saveBtn.disabled = false;
+      saveBtn.textContent = "Record Payment";
+      return;
+    }
+
+    const { error: paymentError } = await supabaseClient.from("payments").insert({
+      payment_number: paymentNumber,
+      invoice_id: invoiceId,
+      amount: amount,
+      payment_method: document.getElementById("paymentMethod").value,
+      reference_number: document.getElementById("paymentReference").value.trim() || null,
+      payment_date: document.getElementById("paymentDate").value,
+      recorded_by: user.id,
+    });
+
+    if (paymentError) {
+      formError.textContent = paymentError.message;
+      formError.style.display = "block";
+      saveBtn.disabled = false;
+      saveBtn.textContent = "Record Payment";
+      return;
+    }
+
+    // Update invoice.amount_paid and status
+    const newAmountPaid = Number(inv.amount_paid) + amount;
+    const newStatus = newAmountPaid >= Number(inv.total) - 0.01 ? "paid" : "partially_paid";
+
+    await supabaseClient
+      .from("invoices")
+      .update({ amount_paid: newAmountPaid, status: newStatus })
+      .eq("id", invoiceId);
+
+    saveBtn.disabled = false;
+    saveBtn.textContent = "Record Payment";
+
+    closePaymentModal();
+    closeViewModal();
+    loadInvoices();
+  });
+
+  // ----------------------------------------------------------------------
+  // Page init
+  // ----------------------------------------------------------------------
+  (async () => {
+    const profile = await requireAuth();
+    if (!profile) return;
+    if (!guardRole(profile, ["finance", "sales"])) return;
+
+    renderSidebar(profile);
+    renderUserChrome(profile);
+
+    await loadReferenceData();
+    await loadInvoices();
+  })();
+
+</script>
+</body>
+</html>

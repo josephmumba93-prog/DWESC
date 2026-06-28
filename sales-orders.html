@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Sales Orders — DW Engineering IPSS</title>
+<link rel="stylesheet" href="style.css" />
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+<div class="app-shell">
+
+  <nav class="sidebar">
+    <div class="sidebar-brand">
+      <img src="dw-logo.png" alt="DW Engineering" />
+      <div class="sidebar-brand-text">DW ENGINEERING<br/>SOLUTION &amp; CONTRACTORS</div>
+    </div>
+    <div class="sidebar-nav" id="sidebarNav"></div>
+    <div class="sidebar-footer">DW Engineering IPSS<br/>v1.0 &middot; Internal Use Only</div>
+  </nav>
+
+  <div class="main-area">
+    <header class="topbar">
+      <div class="topbar-title">Sales Orders</div>
+      <div class="topbar-user">
+        <span class="role-badge" id="roleBadge"></span>
+        <span class="user-name" id="userName"></span>
+        <button class="btn-link" id="signOutBtn">Sign out</button>
+      </div>
+    </header>
+
+    <main class="content">
+
+      <h1 class="section-title">Sales Orders</h1>
+      <p class="section-subtitle">Orders confirmed with customers, usually created from an accepted quotation.</p>
+
+      <div class="card" style="padding: 0; margin-top:20px;">
+        <table>
+          <thead>
+            <tr>
+              <th>Order #</th>
+              <th>Customer</th>
+              <th>Order Date</th>
+              <th>Status</th>
+              <th class="text-right">Total</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="soTableBody">
+            <tr><td colspan="6" class="empty-state">Loading sales orders…</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<!-- ============================== VIEW SALES ORDER MODAL ============================== -->
+<div class="modal-overlay" id="viewSoModal">
+  <div class="modal-box modal-wide">
+    <div class="modal-header">
+      <h2 id="viewSoTitle">Sales Order</h2>
+      <button class="modal-close" id="closeViewModalBtn">&times;</button>
+    </div>
+    <div class="modal-body" id="viewSoBody"></div>
+    <div class="modal-footer" id="viewSoFooter"></div>
+  </div>
+</div>
+
+<script src="supabase-config.js"></script>
+<script src="auth-guard.js"></script>
+<script src="nav.js"></script>
+<script>
+
+  let allSOs = [];
+
+  const soStatusBadge = (status) => {
+    const map = {
+      pending: "badge-info",
+      confirmed: "badge-warning",
+      fulfilled: "badge-success",
+      cancelled: "badge-danger",
+    };
+    return `<span class="badge ${map[status] || "badge-info"}">${status}</span>`;
+  };
+
+  async function loadSOs() {
+    const { data, error } = await supabaseClient
+      .from("sales_orders")
+      .select("*, customers(name, customer_code)")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("Error loading sales orders:", error);
+      document.getElementById("soTableBody").innerHTML =
+        `<tr><td colspan="6" class="empty-state">Could not load sales orders. ${error.message}</td></tr>`;
+      return;
+    }
+
+    allSOs = data || [];
+
+    for (const so of allSOs) {
+      const { data: lines } = await supabaseClient
+        .from("sales_order_lines")
+        .select("line_total")
+        .eq("sales_order_id", so.id);
+      so._total = (lines || []).reduce((sum, l) => sum + Number(l.line_total || 0), 0);
+    }
+
+    renderSOTable();
+  }
+
+  function renderSOTable() {
+    const body = document.getElementById("soTableBody");
+    if (allSOs.length === 0) {
+      body.innerHTML = `<tr><td colspan="6" class="empty-state">No sales orders yet. Create one from an accepted quotation.</td></tr>`;
+      return;
+    }
+
+    body.innerHTML = allSOs
+      .map(
+        (so) => `
+        <tr>
+          <td class="font-mono">${so.order_number}</td>
+          <td>${so.customers ? so.customers.name : "—"}</td>
+          <td>${so.order_date}</td>
+          <td>${soStatusBadge(so.status)}</td>
+          <td class="text-right">ZMW ${Number(so._total || 0).toLocaleString("en-ZM", { minimumFractionDigits: 2 })}</td>
+          <td class="text-right"><button class="icon-btn" onclick="openViewModal('${so.id}')">View</button></td>
+        </tr>`
+      )
+      .join("");
+  }
+
+  async function openViewModal(soId) {
+    const so = allSOs.find((x) => x.id === soId);
+    if (!so) return;
+
+    document.getElementById("viewSoTitle").textContent = `Sales Order ${so.order_number}`;
+
+    const { data: lines } = await supabaseClient
+      .from("sales_order_lines")
+      .select("*, items(name, item_code, unit_of_measure)")
+      .eq("sales_order_id", soId);
+
+    const total = (lines || []).reduce((sum, l) => sum + Number(l.line_total || 0), 0);
+
+    document.getElementById("viewSoBody").innerHTML = `
+      <div class="form-row" style="margin-bottom:16px;">
+        <div><div class="text-muted" style="font-size:12px;">Customer</div><strong>${so.customers ? so.customers.name : "—"}</strong></div>
+        <div><div class="text-muted" style="font-size:12px;">Status</div>${soStatusBadge(so.status)}</div>
+      </div>
+      <table>
+        <thead><tr><th>Item</th><th>Qty Ordered</th><th>Qty Invoiced</th><th>Unit Price</th><th class="text-right">Line Total</th></tr></thead>
+        <tbody>
+          ${(lines || [])
+            .map(
+              (l) => `
+            <tr>
+              <td>${l.items ? l.items.name : "—"}</td>
+              <td>${Number(l.qty).toLocaleString()} ${l.items ? l.items.unit_of_measure : ""}</td>
+              <td>${Number(l.qty_invoiced).toLocaleString()}</td>
+              <td>ZMW ${Number(l.unit_price).toLocaleString("en-ZM", { minimumFractionDigits: 2 })}</td>
+              <td class="text-right">ZMW ${Number(l.line_total).toLocaleString("en-ZM", { minimumFractionDigits: 2 })}</td>
+            </tr>`
+            )
+            .join("")}
+        </tbody>
+      </table>
+      <div class="text-right" style="margin-top:14px; font-size:15px;">
+        <strong>Total: ZMW ${total.toLocaleString("en-ZM", { minimumFractionDigits: 2 })}</strong>
+      </div>
+    `;
+
+    const footer = document.getElementById("viewSoFooter");
+    let actionsHtml = "";
+    if (so.status === "pending") {
+      actionsHtml = `<button class="btn btn-primary" onclick="updateSoStatus('${so.id}', 'confirmed')">Confirm Order</button>`;
+    } else if (so.status === "confirmed") {
+      actionsHtml = `<span class="text-muted" style="font-size:13px; margin-right:10px;">Go to Invoices to bill this order.</span>
+                     <button class="btn btn-primary" onclick="markFulfilled('${so.id}')">Mark Fulfilled</button>`;
+    }
+    footer.innerHTML = `<button type="button" class="btn btn-secondary" onclick="closeViewModal()">Close</button>${actionsHtml}`;
+
+    document.getElementById("viewSoModal").classList.add("open");
+  }
+
+  async function updateSoStatus(soId, newStatus) {
+    const { error } = await supabaseClient.from("sales_orders").update({ status: newStatus }).eq("id", soId);
+    if (error) {
+      alert("Could not update status: " + error.message);
+      return;
+    }
+    closeViewModal();
+    loadSOs();
+  }
+
+  async function markFulfilled(soId) {
+    if (!confirm("Mark this order as fulfilled? This means all items have been delivered to the customer.")) return;
+    await updateSoStatus(soId, "fulfilled");
+  }
+
+  function closeViewModal() {
+    document.getElementById("viewSoModal").classList.remove("open");
+  }
+  document.getElementById("closeViewModalBtn").addEventListener("click", closeViewModal);
+  document.getElementById("viewSoModal").addEventListener("click", (e) => {
+    if (e.target.id === "viewSoModal") closeViewModal();
+  });
+
+  // ----------------------------------------------------------------------
+  // Page init
+  // ----------------------------------------------------------------------
+  (async () => {
+    const profile = await requireAuth();
+    if (!profile) return;
+    if (!guardRole(profile, ["sales"])) return;
+
+    renderSidebar(profile);
+    renderUserChrome(profile);
+
+    loadSOs();
+  })();
+
+</script>
+</body>
+</html>
