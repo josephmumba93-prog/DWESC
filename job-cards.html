@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Job Cards — DW Engineering IPSS</title>
+<link rel="stylesheet" href="style.css" />
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+<div class="app-shell">
+
+  <nav class="sidebar">
+    <div class="sidebar-brand">
+      <img src="dw-logo.png" alt="DW Engineering" />
+      <div class="sidebar-brand-text">DW ENGINEERING<br/>SOLUTION &amp; CONTRACTORS</div>
+    </div>
+    <div class="sidebar-nav" id="sidebarNav"></div>
+    <div class="sidebar-footer">DW Engineering IPSS<br/>v1.0 &middot; Internal Use Only</div>
+  </nav>
+
+  <div class="main-area">
+    <header class="topbar">
+      <div class="topbar-title">Job Cards</div>
+      <div class="topbar-user">
+        <span class="role-badge" id="roleBadge"></span>
+        <span class="user-name" id="userName"></span>
+        <button class="btn-link" id="signOutBtn">Sign out</button>
+      </div>
+    </header>
+
+    <main class="content">
+
+      <div class="page-toolbar">
+        <div>
+          <h1 class="section-title">Job Cards</h1>
+          <p class="section-subtitle">Work orders for electrical, mechanical, and instrumentation service jobs.</p>
+        </div>
+        <button class="btn btn-primary" id="addJobCardBtn">+ New Job Card</button>
+      </div>
+
+      <div class="card" style="padding: 0;">
+        <table>
+          <thead>
+            <tr>
+              <th>Job Card #</th>
+              <th>Customer / Branch</th>
+              <th>Service</th>
+              <th>Technician</th>
+              <th>Status</th>
+              <th>Date Opened</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="jobCardsTableBody">
+            <tr><td colspan="7" class="empty-state">Loading job cards…</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<!-- ============================== CREATE JOB CARD MODAL ============================== -->
+<div class="modal-overlay" id="jobCardModal">
+  <div class="modal-box modal-wide">
+    <div class="modal-header">
+      <h2>New Job Card</h2>
+      <button class="modal-close" id="closeModalBtn">&times;</button>
+    </div>
+    <form id="jobCardForm">
+      <div class="modal-body">
+
+        <div class="form-row">
+          <div class="field">
+            <label for="jcCustomer">Customer *</label>
+            <select id="jcCustomer" required>
+              <option value="">Select a customer…</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="jcBranch">Branch / Site *</label>
+            <select id="jcBranch" required>
+              <option value="">Select customer first…</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="field">
+            <label for="jcServiceCategory">Service Category *</label>
+            <select id="jcServiceCategory" required>
+              <option value="plant_electrical">Plant Electrical Services</option>
+              <option value="instrumentation_automation">Instrumentation and Automation Services</option>
+              <option value="plant_mechanical">Plant Mechanical Maintenance</option>
+              <option value="vibration_testing">Vibration Testing Services</option>
+              <option value="pipe_thickness_testing">Pipe Thickness Testing Services</option>
+              <option value="ultrasonic_flow_measurement">Ultrasonic Flow Measurement Services</option>
+              <option value="condition_based_monitoring">Condition-Based Monitoring</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="jcTechnician">Primary Technician</label>
+            <select id="jcTechnician">
+              <option value="">Unassigned</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="field">
+            <label for="jcEquipmentName">Equipment Worked On</label>
+            <input type="text" id="jcEquipmentName" placeholder="e.g. Chiller Pump #2" />
+          </div>
+          <div class="field">
+            <label for="jcEquipmentTag">Equipment / Asset Tag</label>
+            <input type="text" id="jcEquipmentTag" placeholder="e.g. AST-0042 (optional)" />
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="jcDateOpened">Date Opened *</label>
+          <input type="date" id="jcDateOpened" required />
+        </div>
+
+        <div class="login-error" id="formError" style="display:none;"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" id="cancelModalBtn">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="saveJobCardBtn">Create Job Card</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ============================== VIEW / WORK ON JOB CARD MODAL ============================== -->
+<div class="modal-overlay" id="viewJobCardModal">
+  <div class="modal-box modal-wide">
+    <div class="modal-header">
+      <h2 id="viewJobCardTitle">Job Card</h2>
+      <button class="modal-close" id="closeViewModalBtn">&times;</button>
+    </div>
+    <div class="modal-body" id="viewJobCardBody"></div>
+    <div class="modal-footer" id="viewJobCardFooter"></div>
+  </div>
+</div>
+
+<!-- ============================== ADD PART SUB-MODAL ============================== -->
+<div class="modal-overlay" id="addPartModal" style="z-index: 110;">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h2>Add Part Used</h2>
+      <button class="modal-close" id="closeAddPartModalBtn">&times;</button>
+    </div>
+    <form id="addPartForm">
+      <div class="modal-body">
+        <input type="hidden" id="addPartJobCardId" />
+
+        <div class="field">
+          <label for="partItemSelect">Item / Part *</label>
+          <select id="partItemSelect" required>
+            <option value="">Select an item…</option>
+          </select>
+          <div class="text-faint" id="partStockHint" style="font-size:11.5px; margin-top:4px;"></div>
+        </div>
+        <div class="form-row">
+          <div class="field">
+            <label for="partQty">Quantity Used *</label>
+            <input type="number" id="partQty" required min="0.01" step="0.01" value="1" />
+          </div>
+          <div class="field">
+            <label for="partPrice">Price Charged to Customer (ZMW)</label>
+            <input type="number" id="partPrice" min="0" step="0.01" value="0" />
+          </div>
+        </div>
+        <div class="field">
+          <label style="display:flex; align-items:center; gap:8px; font-weight:500;">
+            <input type="checkbox" id="partBillable" style="width:auto;" checked />
+            Billable to customer
+          </label>
+        </div>
+        <div class="login-error" id="addPartFormError" style="display:none;"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" id="cancelAddPartBtn">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="saveAddPartBtn">Add Part</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="supabase-config.js"></script>
+<script src="auth-guard.js"></script>
+<script src="nav.js"></script>
+<script>
+
+  let allJobCards = [];
+  let allCustomersForJC = [];
+  let allTechnicians = [];
+  let allStockItemsForJC = [];
+  let activeJobCardId = null;
+  let currentProfile = null; // set once on page init, used for role-based UI decisions
+
+  const serviceCategoryLabel = {
+    plant_electrical: "Plant Electrical",
+    instrumentation_automation: "Instrumentation & Automation",
+    plant_mechanical: "Plant Mechanical",
+    vibration_testing: "Vibration Testing",
+    pipe_thickness_testing: "Pipe Thickness Testing",
+    ultrasonic_flow_measurement: "Ultrasonic Flow Measurement",
+    condition_based_monitoring: "Condition-Based Monitoring",
+    other: "Other",
+  };
+
+  const jcStatusBadge = (status) => {
+    const map = {
+      open: "badge-info",
+      in_progress: "badge-warning",
+      completed: "badge-success",
+      invoiced: "badge-success",
+      cancelled: "badge-danger",
+    };
+    return `<span class="badge ${map[status] || "badge-info"}">${status.replace(/_/g, " ")}</span>`;
+  };
+
+  // ----------------------------------------------------------------------
+  // Reference data
+  // ----------------------------------------------------------------------
+  async function loadReferenceData() {
+    const { data: customers } = await supabaseClient
+      .from("customers")
+      .select("id, name, customer_code")
+      .eq("active", true)
+      .order("name");
+    allCustomersForJC = customers || [];
+
+    const custSelect = document.getElementById("jcCustomer");
+    custSelect.innerHTML =
+      `<option value="">Select a customer…</option>` +
+      allCustomersForJC.map((c) => `<option value="${c.id}">${c.name} (${c.customer_code})</option>`).join("");
+
+    const { data: profiles } = await supabaseClient
+      .from("profiles")
+      .select("id, full_name, role")
+      .in("role", ["technician", "admin"])
+      .eq("active", true)
+      .order("full_name");
+    allTechnicians = profiles || [];
+
+    const techSelect = document.getElementById("jcTechnician");
+    techSelect.innerHTML =
+      `<option value="">Unassigned</option>` +
+      allTechnicians.map((t) => `<option value="${t.id}">${t.full_name}</option>`).join("");
+
+    const { data: stockItems } = await supabaseClient
+      .from("v_current_stock")
+      .select("item_id, item_code, name, qty_on_hand, unit_of_measure")
+      .order("name");
+    allStockItemsForJC = stockItems || [];
+  }
+
+  document.getElementById("jcCustomer").addEventListener("change", async (e) => {
+    const customerId = e.target.value;
+    const branchSelect = document.getElementById("jcBranch");
+
+    if (!customerId) {
+      branchSelect.innerHTML = `<option value="">Select customer first…</option>`;
+      return;
+    }
+
+    const { data: branches } = await supabaseClient
+      .from("customer_branches")
+      .select("id, branch_name, branch_code")
+      .eq("customer_id", customerId)
+      .eq("active", true)
+      .order("branch_name");
+
+    if (!branches || branches.length === 0) {
+      branchSelect.innerHTML = `<option value="">No branches — add one on the Customers page first</option>`;
+      return;
+    }
+
+    branchSelect.innerHTML =
+      `<option value="">Select a branch…</option>` +
+      branches.map((b) => `<option value="${b.id}">${b.branch_name} (${b.branch_code})</option>`).join("");
+  });
+
+  // ----------------------------------------------------------------------
+  // Job cards list
+  // ----------------------------------------------------------------------
+  async function loadJobCards() {
+    const { data, error } = await supabaseClient
+      .from("job_cards")
+      .select("*, customers(name), customer_branches(branch_name), profiles(full_name)")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("Error loading job cards:", error);
+      document.getElementById("jobCardsTableBody").innerHTML =
+        `<tr><td colspan="7" class="empty-state">Could not load job cards. ${error.message}</td></tr>`;
+      return;
+    }
+
+    allJobCards = data || [];
+    renderJobCardsTable();
+  }
+
+  function renderJobCardsTable() {
+    const body = document.getElementById("jobCardsTableBody");
+    if (allJobCards.length === 0) {
+      body.innerHTML = `<tr><td colspan="7" class="empty-state">No job cards yet. Click "New Job Card" to create one.</td></tr>`;
+      return;
+    }
+
+    body.innerHTML = allJobCards
+      .map(
+        (jc) => `
+        <tr>
+          <td class="font-mono">${jc.job_card_number}</td>
+          <td>${jc.customers ? jc.customers.name : "—"}${jc.customer_branches ? " — " + jc.customer_branches.branch_name : ""}</td>
+          <td>${serviceCategoryLabel[jc.service_category] || jc.service_category}</td>
+          <td>${jc.profiles ? jc.profiles.full_name : `<span class="text-faint">Unassigned</span>`}</td>
+          <td>${jcStatusBadge(jc.status)}</td>
+          <td>${jc.date_opened}</td>
+          <td class="text-right"><button class="icon-btn" onclick="openViewModal('${jc.id}')">Open</button></td>
+        </tr>`
+      )
+      .join("");
+  }
+
+  // ----------------------------------------------------------------------
+  // Create job card modal
+  // ----------------------------------------------------------------------
+  function resetJobCardForm() {
+    document.getElementById("jobCardForm").reset();
+    document.getElementById("jcBranch").innerHTML = `<option value="">Select customer first…</option>`;
+    document.getElementById("jcDateOpened").valueAsDate = new Date();
+    document.getElementById("formError").style.display = "none";
+  }
+
+  document.getElementById("addJobCardBtn").addEventListener("click", () => {
+    resetJobCardForm();
+    document.getElementById("jobCardModal").classList.add("open");
+  });
+
+  function closeJobCardModal() {
+    document.getElementById("jobCardModal").classList.remove("open");
+  }
+  document.getElementById("closeModalBtn").addEventListener("click", closeJobCardModal);
+  document.getElementById("cancelModalBtn").addEventListener("click", closeJobCardModal);
+  document.getElementById("jobCardModal").addEventListener("click", (e) => {
+    if (e.target.id === "jobCardModal") closeJobCardModal();
+  });
+
+  document.getElementById("jobCardForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const formError = document.getElementById("formError");
+    formError.style.display = "none";
+
+    const branchId = document.getElementById("jcBranch").value;
+    if (!branchId) {
+      formError.textContent = "Please select a branch for this customer (add one on the Customers page if none exist).";
+      formError.style.display = "block";
+      return;
+    }
+
+    const saveBtn = document.getElementById("saveJobCardBtn");
+    saveBtn.disabled = true;
+    saveBtn.textContent = "Creating...";
+
+    const { data: { user } } = await supabaseClient.auth.getUser();
+    const { data: jcNumber, error: numError } = await supabaseClient.rpc("next_document_number", { p_prefix: "JC" });
+
+    if (numError) {
+      formError.textContent = "Could not generate a job card number: " + numError.message;
+      formError.style.display = "block";
+      saveBtn.disabled = false;
+      saveBtn.textContent = "Create Job Card";
+      return;
+    }
+
+    const { error: jcError } = await supabaseClient.from("job_cards").insert({
+      job_card_number: jcNumber,
+      customer_id: document.getElementById("jcCustomer").value,
+      customer_branch_id: branchId,
+      service_category: document.getElementById("jcServiceCategory").value,
+      technician_id: document.getElementById("jcTechnician").value || null,
+      equipment_name: document.getElementById("jcEquipmentName").value.trim() || null,
+      equipment_tag: document.getElementById("jcEquipmentTag").value.trim() || null,
+      date_opened: document.getElementById("jcDateOpened").value,
+      created_by: user.id,
+      status: "open",
+    });
+
+    saveBtn.disabled = false;
+    saveBtn.textContent = "Create Job Card";
+
+    if (jcError) {
+      formError.textContent = jcError.message;
+      formError.style.display = "block";
+      return;
+    }
+
+    closeJobCardModal();
+    loadJobCards();
+  });
+
+  // ----------------------------------------------------------------------
+  // View / work-on job card modal
+  // ----------------------------------------------------------------------
+  async function openViewModal(jobCardId) {
+    activeJobCardId = jobCardId;
+    await renderJobCardDetail(jobCardId);
+    document.getElementById("viewJobCardModal").classList.add("open");
+  }
+
+  async function renderJobCardDetail(jobCardId) {
+    const { data: jc, error } = await supabaseClient
+      .from("job_cards")
+      .select("*, customers(name), customer_branches(branch_name), profiles(full_name)")
+      .eq("id", jobCardId)
+      .single();
+
+    if (error || !jc) {
+      console.error("Could not load job card detail:", error);
+      return;
+    }
+
+    const { data: parts } = await supabaseClient
+      .from("job_card_parts")
+      .select("*, items(name, item_code, unit_of_measure)")
+      .eq("job_card_id", jobCardId);
+
+    document.getElementById("viewJobCardTitle").textContent = `Job Card ${jc.job_card_number}`;
+
+    const partsTotal = (parts || []).reduce((sum, p) => sum + Number(p.line_total || 0), 0);
+    const isEditable = jc.status !== "invoiced" && jc.status !== "cancelled";
+
+    document.getElementById("viewJobCardBody").innerHTML = `
+      <div class="form-row" style="margin-bottom:14px;">
+        <div><div class="text-muted" style="font-size:12px;">Customer / Branch</div><strong>${jc.customers ? jc.customers.name : "—"}${jc.customer_branches ? " — " + jc.customer_branches.branch_name : ""}</strong></div>
+        <div><div class="text-muted" style="font-size:12px;">Status</div>${jcStatusBadge(jc.status)}</div>
+      </div>
+      <div class="form-row" style="margin-bottom:14px;">
+        <div><div class="text-muted" style="font-size:12px;">Service Category</div>${serviceCategoryLabel[jc.service_category] || jc.service_category}</div>
+        <div><div class="text-muted" style="font-size:12px;">Technician</div>${jc.profiles ? jc.profiles.full_name : "Unassigned"}</div>
+      </div>
+      <div class="form-row" style="margin-bottom:14px;">
+        <div><div class="text-muted" style="font-size:12px;">Equipment</div>${jc.equipment_name || "—"} ${jc.equipment_tag ? `<span class="text-faint">(${jc.equipment_tag})</span>` : ""}</div>
+        <div><div class="text-muted" style="font-size:12px;">Date Opened</div>${jc.date_opened}</div>
+      </div>
+
+      <hr style="border:none; border-top:1px solid var(--border); margin: 16px 0;" />
+
+      <div class="page-toolbar" style="margin-bottom:10px;">
+        <label style="margin:0;">Parts &amp; Materials Used</label>
+        ${isEditable && roleCan(currentProfile, ["technician", "store"]) ? `<button type="button" class="btn btn-secondary btn-sm" onclick="openAddPartModal('${jc.id}')">+ Add Part</button>` : ""}
+      </div>
+      <table>
+        <thead><tr><th>Item</th><th>Qty Used</th><th>Billable</th><th class="text-right">Price</th><th class="text-right">Line Total</th></tr></thead>
+        <tbody>
+          ${(parts || []).length === 0
+            ? `<tr><td colspan="5" class="empty-state">No parts recorded yet.</td></tr>`
+            : parts.map((p) => `
+              <tr>
+                <td>${p.items ? p.items.name : "—"}</td>
+                <td>${Number(p.qty_used).toLocaleString()} ${p.items ? p.items.unit_of_measure : ""}</td>
+                <td>${p.billable ? "Yes" : "No"}</td>
+                <td class="text-right">ZMW ${Number(p.unit_price).toLocaleString("en-ZM", { minimumFractionDigits: 2 })}</td>
+                <td class="text-right">ZMW ${Number(p.line_total).toLocaleString("en-ZM", { minimumFractionDigits: 2 })}</td>
+              </tr>`).join("")
+          }
+        </tbody>
+      </table>
+      <div class="text-right" style="margin-top:8px; font-size:13px;">
+        <strong>Parts Total: ZMW ${partsTotal.toLocaleString("en-ZM", { minimumFractionDigits: 2 })}</strong>
+      </div>
+
+      <hr style="border:none; border-top:1px solid var(--border); margin: 16px 0;" />
+
+      <label style="margin-bottom:8px;">Labor</label>
+      <div class="form-row">
+        <div class="field">
+          <label for="laborHours">Labor Hours</label>
+          <input type="number" id="laborHours" min="0" step="0.25" value="${jc.labor_hours || 0}" ${!isEditable ? "disabled" : ""} />
+        </div>
+        <div class="field">
+          <label for="laborRate">Labor Rate (ZMW/hr)</label>
+          <input type="number" id="laborRate" min="0" step="0.01" value="${jc.labor_rate || 0}" ${!isEditable ? "disabled" : ""} />
+        </div>
+      </div>
+      <div class="text-right" style="font-size:13px; margin-bottom:14px;">
+        Labor Total: ZMW ${Number(jc.labor_total || 0).toLocaleString("en-ZM", { minimumFractionDigits: 2 })}
+      </div>
+
+      <div class="field">
+        <label for="jcFindings">Service Findings / Diagnosis</label>
+        <textarea id="jcFindings" rows="3" ${!isEditable ? "disabled" : ""} placeholder="What was found during the service visit...">${jc.findings || ""}</textarea>
+      </div>
+      <div class="field">
+        <label for="jcServiceReport">Service Report / Recommendations</label>
+        <textarea id="jcServiceReport" rows="4" ${!isEditable ? "disabled" : ""} placeholder="Full report, work performed, recommendations...">${jc.service_report || ""}</textarea>
+      </div>
+
+      ${isEditable ? `<button type="button" class="btn btn-secondary btn-sm" onclick="saveJobCardDetails('${jc.id}')">Save Notes &amp; Labor</button>` : ""}
+
+      <div class="login-error" id="viewJobCardError" style="display:none; margin-top:12px;"></div>
+    `;
+
+    const footer = document.getElementById("viewJobCardFooter");
+    let actionsHtml = "";
+    if (jc.status === "open") {
+      actionsHtml = `<button class="btn btn-primary" onclick="updateJcStatus('${jc.id}', 'in_progress')">Start Work</button>`;
+    } else if (jc.status === "in_progress") {
+      actionsHtml = `<button class="btn btn-primary" onclick="updateJcStatus('${jc.id}', 'completed')">Mark Completed</button>`;
+    } else if (jc.status === "completed") {
+      actionsHtml = `<span class="text-muted" style="font-size:13px; margin-right:10px;">Go to Invoices to bill this job.</span>`;
+    }
+    footer.innerHTML = `<button type="button" class="btn btn-secondary" onclick="closeViewModal()">Close</button>${actionsHtml}`;
+  }
+
+  async function saveJobCardDetails(jobCardId) {
+    const laborHours = parseFloat(document.getElementById("laborHours").value) || 0;
+    const laborRate = parseFloat(document.getElementById("laborRate").value) || 0;
+    const findings = document.getElementById("jcFindings").value.trim();
+    const serviceReport = document.getElementById("jcServiceReport").value.trim();
+
+    const { error } = await supabaseClient
+      .from("job_cards")
+      .update({
+        labor_hours: laborHours,
+        labor_rate: laborRate,
+        findings: findings || null,
+        service_report: serviceReport || null,
+      })
+      .eq("id", jobCardId);
+
+    const errEl = document.getElementById("viewJobCardError");
+    if (error) {
+      errEl.textContent = error.message;
+      errEl.style.display = "block";
+      return;
+    }
+
+    await renderJobCardDetail(jobCardId);
+    loadJobCards();
+  }
+
+  async function updateJcStatus(jobCardId, newStatus) {
+    const updates = { status: newStatus };
+    if (newStatus === "completed") updates.date_completed = new Date().toISOString().split("T")[0];
+
+    const { error } = await supabaseClient.from("job_cards").update(updates).eq("id", jobCardId);
+    if (error) {
+      alert("Could not update status: " + error.message);
+      return;
+    }
+    await renderJobCardDetail(jobCardId);
+    loadJobCards();
+  }
+
+  function closeViewModal() {
+    document.getElementById("viewJobCardModal").classList.remove("open");
+  }
+  document.getElementById("closeViewModalBtn").addEventListener("click", closeViewModal);
+  document.getElementById("viewJobCardModal").addEventListener("click", (e) => {
+    if (e.target.id === "viewJobCardModal") closeViewModal();
+  });
+
+  // ----------------------------------------------------------------------
+  // Add part sub-modal
+  // ----------------------------------------------------------------------
+  function openAddPartModal(jobCardId) {
+    document.getElementById("addPartForm").reset();
+    document.getElementById("addPartJobCardId").value = jobCardId;
+    document.getElementById("partBillable").checked = true;
+    document.getElementById("addPartFormError").style.display = "none";
+
+    const select = document.getElementById("partItemSelect");
+    select.innerHTML =
+      `<option value="">Select an item…</option>` +
+      allStockItemsForJC.map((it) => `<option value="${it.item_id}" data-qty="${it.qty_on_hand}" data-unit="${it.unit_of_measure}">${it.name} (${it.item_code})</option>`).join("");
+
+    document.getElementById("partStockHint").textContent = "";
+    document.getElementById("addPartModal").classList.add("open");
+  }
+
+  document.getElementById("partItemSelect").addEventListener("change", (e) => {
+    const opt = e.target.options[e.target.selectedIndex];
+    const hint = document.getElementById("partStockHint");
+    if (opt && opt.value) {
+      hint.textContent = `${Number(opt.getAttribute("data-qty")).toLocaleString()} ${opt.getAttribute("data-unit")} currently in stock`;
+    } else {
+      hint.textContent = "";
+    }
+  });
+
+  function closeAddPartModal() {
+    document.getElementById("addPartModal").classList.remove("open");
+  }
+  document.getElementById("closeAddPartModalBtn").addEventListener("click", closeAddPartModal);
+  document.getElementById("cancelAddPartBtn").addEventListener("click", closeAddPartModal);
+  document.getElementById("addPartModal").addEventListener("click", (e) => {
+    if (e.target.id === "addPartModal") closeAddPartModal();
+  });
+
+  document.getElementById("addPartForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const formError = document.getElementById("addPartFormError");
+    formError.style.display = "none";
+
+    const jobCardId = document.getElementById("addPartJobCardId").value;
+    const itemSelect = document.getElementById("partItemSelect");
+    const itemId = itemSelect.value;
+    const qty = parseFloat(document.getElementById("partQty").value) || 0;
+
+    if (!itemId || qty <= 0) {
+      formError.textContent = "Please select an item and enter a quantity greater than zero.";
+      formError.style.display = "block";
+      return;
+    }
+
+    const stockItem = allStockItemsForJC.find((it) => it.item_id === itemId);
+    if (stockItem && qty > Number(stockItem.qty_on_hand)) {
+      formError.textContent = `Only ${Number(stockItem.qty_on_hand).toLocaleString()} ${stockItem.unit_of_measure} currently in stock. Consider an inventory check before proceeding.`;
+      formError.style.display = "block";
+      return;
+    }
+
+    const saveBtn = document.getElementById("saveAddPartBtn");
+    saveBtn.disabled = true;
+    saveBtn.textContent = "Adding...";
+
+    // Look up the item's current cost_price for the ledger entry
+    const { data: itemRow } = await supabaseClient.from("items").select("cost_price").eq("id", itemId).single();
+    const unitCost = itemRow ? itemRow.cost_price : 0;
+
+    const { data: { user } } = await supabaseClient.auth.getUser();
+
+    // 1. Write the stock_movements ledger entry (service_consumption, stock out)
+    const { data: movement, error: movementError } = await supabaseClient
+      .from("stock_movements")
+      .insert({
+        item_id: itemId,
+        movement_type: "service_consumption",
+        qty_delta: -qty,
+        unit_cost: unitCost,
+        reference_table: "job_cards",
+        reference_id: jobCardId,
+        performed_by: user.id,
+      })
+      .select()
+      .single();
+
+    if (movementError) {
+      formError.textContent = "Could not record stock movement: " + movementError.message;
+      formError.style.display = "block";
+      saveBtn.disabled = false;
+      saveBtn.textContent = "Add Part";
+      return;
+    }
+
+    // 2. Record the job_card_parts line, linked back to the ledger entry
+    const { error: partError } = await supabaseClient.from("job_card_parts").insert({
+      job_card_id: jobCardId,
+      item_id: itemId,
+      qty_used: qty,
+      unit_cost: unitCost,
+      unit_price: parseFloat(document.getElementById("partPrice").value) || 0,
+      billable: document.getElementById("partBillable").checked,
+      stock_movement_id: movement.id,
+    });
+
+    saveBtn.disabled = false;
+    saveBtn.textContent = "Add Part";
+
+    if (partError) {
+      formError.textContent = "Stock was deducted but the part record failed to save: " + partError.message + ". Please contact an administrator.";
+      formError.style.display = "block";
+      return;
+    }
+
+    closeAddPartModal();
+    await loadReferenceData(); // refresh stock quantities
+    await renderJobCardDetail(jobCardId);
+  });
+
+  // ----------------------------------------------------------------------
+  // Page init
+  // ----------------------------------------------------------------------
+  (async () => {
+    const profile = await requireAuth();
+    if (!profile) return;
+    if (!guardRole(profile, ["technician", "sales"])) return;
+
+    currentProfile = profile;
+    renderSidebar(profile);
+    renderUserChrome(profile);
+
+    await loadReferenceData();
+    await loadJobCards();
+  })();
+
+</script>
+</body>
+</html>
