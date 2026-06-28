@@ -97,11 +97,18 @@
             </select>
           </div>
           <div class="field">
-            <label for="invoiceCustomer">Customer *</label>
-            <select id="invoiceCustomer" required>
-              <option value="">Select a customer…</option>
+            <label for="jobCardSelect">From Completed Job Card (optional)</label>
+            <select id="jobCardSelect">
+              <option value="">Create from scratch instead</option>
             </select>
           </div>
+        </div>
+
+        <div class="field">
+          <label for="invoiceCustomer">Customer *</label>
+          <select id="invoiceCustomer" required>
+            <option value="">Select a customer…</option>
+          </select>
         </div>
 
         <div class="form-row">
@@ -238,6 +245,8 @@
   // ----------------------------------------------------------------------
   // Reference data
   // ----------------------------------------------------------------------
+  let completedJobCards = [];
+
   async function loadReferenceData() {
     const { data: sos } = await supabaseClient
       .from("sales_orders")
@@ -250,6 +259,18 @@
     soSelect.innerHTML =
       `<option value="">Create from scratch instead</option>` +
       confirmedSalesOrders.map((so) => `<option value="${so.id}">${so.order_number} — ${so.customers ? so.customers.name : ""}</option>`).join("");
+
+    const { data: jcs } = await supabaseClient
+      .from("job_cards")
+      .select("id, job_card_number, customer_id, customer_branch_id, status, customers(name)")
+      .eq("status", "completed")
+      .order("date_opened", { ascending: false });
+    completedJobCards = jcs || [];
+
+    const jcSelect = document.getElementById("jobCardSelect");
+    jcSelect.innerHTML =
+      `<option value="">Create from scratch instead</option>` +
+      completedJobCards.map((jc) => `<option value="${jc.id}">${jc.job_card_number} — ${jc.customers ? jc.customers.name : ""}</option>`).join("");
 
     const { data: customers } = await supabaseClient
       .from("customers")
@@ -274,6 +295,10 @@
     const soId = e.target.value;
     if (!soId) return;
 
+    // Selecting a sales order and a job card together doesn't make sense --
+    // an invoice is either a product sale or a service job, not both.
+    document.getElementById("jobCardSelect").value = "";
+
     const so = confirmedSalesOrders.find((x) => x.id === soId);
     if (so) document.getElementById("invoiceCustomer").value = so.customer_id;
 
@@ -291,6 +316,60 @@
         price: l.unit_price,
       });
     });
+    recalcInvoiceTotals();
+  });
+
+  document.getElementById("jobCardSelect").addEventListener("change", async (e) => {
+    const jcId = e.target.value;
+    if (!jcId) return;
+
+    // A job card invoice is a service invoice, not a product sale --
+    // selecting one clears any sales order selection (mutually exclusive).
+    document.getElementById("salesOrderSelect").value = "";
+
+    const jc = completedJobCards.find((x) => x.id === jcId);
+    if (jc) document.getElementById("invoiceCustomer").value = jc.customer_id;
+
+    const { data: parts } = await supabaseClient
+      .from("job_card_parts")
+      .select("*, items(name, item_code)")
+      .eq("job_card_id", jcId)
+      .eq("billable", true);
+
+    const { data: jobCardDetail } = await supabaseClient
+      .from("job_cards")
+      .select("labor_hours, labor_rate, labor_total")
+      .eq("id", jcId)
+      .single();
+
+    document.getElementById("invoiceLinesBody").innerHTML = "";
+
+    // Billable parts used on the job, at the price the technician set
+    // when recording them (not the catalog selling_price -- a parts
+    // line on a service job is its own billing decision).
+    (parts || []).forEach((p) => {
+      addInvoiceLineRow({
+        itemId: p.item_id,
+        description: p.items ? p.items.name : "",
+        qty: p.qty_used,
+        price: p.unit_price,
+      });
+    });
+
+    // Labor as its own line, with no catalog item attached (free-text).
+    if (jobCardDetail && Number(jobCardDetail.labor_total) > 0) {
+      addInvoiceLineRow({
+        itemId: null,
+        description: `Labor (${jobCardDetail.labor_hours} hrs @ ZMW ${Number(jobCardDetail.labor_rate).toFixed(2)}/hr)`,
+        qty: 1,
+        price: jobCardDetail.labor_total,
+      });
+    }
+
+    if ((parts || []).length === 0 && (!jobCardDetail || Number(jobCardDetail.labor_total) === 0)) {
+      addInvoiceLineRow(); // nothing billable found, leave one blank row to fill in manually
+    }
+
     recalcInvoiceTotals();
   });
 
@@ -417,6 +496,8 @@
 
   async function resetInvoiceForm() {
     document.getElementById("invoiceForm").reset();
+    document.getElementById("salesOrderSelect").value = "";
+    document.getElementById("jobCardSelect").value = "";
     document.getElementById("invoiceLinesBody").innerHTML = "";
     document.getElementById("invSubtotal").textContent = "0.00";
     document.getElementById("invVat").textContent = "0.00";
@@ -478,6 +559,7 @@
     const vat = subtotal * VAT_RATE;
     const total = subtotal + vat;
     const soId = document.getElementById("salesOrderSelect").value || null;
+    const jobCardId = document.getElementById("jobCardSelect").value || null;
 
     const saveBtn = document.getElementById("saveInvoiceBtn");
     saveBtn.disabled = true;
@@ -486,15 +568,17 @@
     const { data: { user } } = await supabaseClient.auth.getUser();
 
     const so = soId ? confirmedSalesOrders.find((x) => x.id === soId) : null;
+    const jc = jobCardId ? completedJobCards.find((x) => x.id === jobCardId) : null;
 
     const { data: newInvoice, error: invError } = await supabaseClient
       .from("invoices")
       .insert({
         invoice_number: document.getElementById("invoiceNumber").value.trim(),
-        invoice_type: "product",
+        invoice_type: jobCardId ? "service" : "product",
         customer_id: customerId,
-        customer_branch_id: so ? so.customer_branch_id : null,
+        customer_branch_id: so ? so.customer_branch_id : (jc ? jc.customer_branch_id : null),
         sales_order_id: soId,
+        job_card_id: jobCardId,
         invoice_date: document.getElementById("invoiceDate").value,
         due_date: document.getElementById("dueDate").value || null,
         payment_terms: document.getElementById("invPaymentTerms").value.trim() || null,
@@ -538,17 +622,27 @@
       return;
     }
 
-    // If invoiced from a sales order, write stock_movements for each line
-    // (sales_issue) and bump qty_invoiced on the originating order lines.
-    if (soId) {
-      const { data: soLines } = await supabaseClient
-        .from("sales_order_lines")
-        .select("*")
-        .eq("sales_order_id", soId);
+    // Write a stock_movements ledger entry (sales_issue) for every line that
+    // has a real item attached -- this must happen for ALL product invoices,
+    // not just ones created from a sales order, since a direct invoice still
+    // represents stock physically leaving for a customer.
+    //
+    // IMPORTANT: this does NOT run for job-card-sourced invoices. When a part
+    // is added to a job card, it already deducts stock at that moment
+    // (service_consumption movement, see job-cards.html). Re-deducting here
+    // would count the same physical part leaving stock twice.
+    if (!jobCardId) {
+      let soLines = [];
+      if (soId) {
+        const { data } = await supabaseClient
+          .from("sales_order_lines")
+          .select("*")
+          .eq("sales_order_id", soId);
+        soLines = data || [];
+      }
 
       for (const l of lines) {
-        if (!l.itemId) continue;
-        const matchingSoLine = (soLines || []).find((sl) => sl.item_id === l.itemId);
+        if (!l.itemId) continue; // free-text lines (no catalog item) don't affect stock
 
         await supabaseClient.from("stock_movements").insert({
           item_id: l.itemId,
@@ -560,13 +654,23 @@
           performed_by: user.id,
         });
 
-        if (matchingSoLine) {
-          await supabaseClient
-            .from("sales_order_lines")
-            .update({ qty_invoiced: Number(matchingSoLine.qty_invoiced) + l.qty })
-            .eq("id", matchingSoLine.id);
+        // If this invoice was created from a confirmed sales order, also bump
+        // that order line's qty_invoiced so its fulfillment progress is accurate.
+        if (soId) {
+          const matchingSoLine = soLines.find((sl) => sl.item_id === l.itemId);
+          if (matchingSoLine) {
+            await supabaseClient
+              .from("sales_order_lines")
+              .update({ qty_invoiced: Number(matchingSoLine.qty_invoiced) + l.qty })
+              .eq("id", matchingSoLine.id);
+          }
         }
       }
+    } else {
+      // Mark the source job card as invoiced so it stops appearing in the
+      // "From Completed Job Card" dropdown for future invoices (preventing
+      // the same job from accidentally being billed twice).
+      await supabaseClient.from("job_cards").update({ status: "invoiced" }).eq("id", jobCardId);
     }
 
     closeInvoiceModal();
@@ -759,7 +863,7 @@
   (async () => {
     const profile = await requireAuth();
     if (!profile) return;
-    if (!guardRole(profile, ["finance", "sales"])) return;
+    if (!guardRole(profile, ["finance", "sales", "technician"])) return;
 
     renderSidebar(profile);
     renderUserChrome(profile);
