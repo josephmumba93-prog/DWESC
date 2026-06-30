@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Company Settings — DW Engineering IPSS</title>
+<link rel="stylesheet" href="style.css" />
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+<div class="app-shell">
+
+  <nav class="sidebar">
+    <div class="sidebar-brand">
+      <img src="dw-logo.png" alt="DW Engineering" />
+      <div class="sidebar-brand-text">DW ENGINEERING<br/>SOLUTION &amp; CONTRACTORS</div>
+    </div>
+    <div class="sidebar-nav" id="sidebarNav"></div>
+    <div class="sidebar-footer">DW Engineering IPSS<br/>v1.0 &middot; Internal Use Only</div>
+  </nav>
+
+  <div class="main-area">
+    <header class="topbar">
+      <div class="topbar-title">Company Settings</div>
+      <div class="topbar-user">
+        <span class="role-badge" id="roleBadge"></span>
+        <span class="user-name" id="userName"></span>
+        <button class="btn-link" id="signOutBtn">Sign out</button>
+      </div>
+    </header>
+
+    <main class="content">
+
+      <h1 class="section-title">Company Settings</h1>
+      <p class="section-subtitle">These details appear on every quotation, invoice, and purchase order template.</p>
+
+      <div class="card" style="max-width: 720px; padding: 24px; margin-top: 18px;">
+        <form id="settingsForm">
+
+          <div class="field">
+            <label for="companyName">Company Name *</label>
+            <input type="text" id="companyName" required />
+          </div>
+
+          <div class="field">
+            <label for="tagline">Tagline / Description</label>
+            <textarea id="tagline" rows="3"></textarea>
+          </div>
+
+          <div class="form-row">
+            <div class="field">
+              <label for="tpin">TPIN</label>
+              <input type="text" id="tpin" />
+            </div>
+            <div class="field">
+              <label for="email">Email</label>
+              <input type="email" id="email" />
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="phoneNumbers">Phone Number(s)</label>
+            <input type="text" id="phoneNumbers" placeholder="Separate multiple numbers with / " />
+          </div>
+
+          <div class="field">
+            <label for="address">Address</label>
+            <input type="text" id="address" />
+          </div>
+
+          <div class="form-row">
+            <div class="field">
+              <label for="defaultVatRate">Default VAT Rate (%)</label>
+              <input type="number" id="defaultVatRate" min="0" max="100" step="0.01" />
+            </div>
+            <div class="field">
+              <label for="defaultPaymentTerms">Default Payment Terms</label>
+              <input type="text" id="defaultPaymentTerms" placeholder="e.g. 30 days" />
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="logoUrl">Logo URL</label>
+            <input type="text" id="logoUrl" placeholder="Supabase Storage public URL, once uploaded" />
+            <div class="text-faint" style="font-size:11.5px; margin-top:4px;">Upload your logo file to Supabase Storage, then paste its public URL here.</div>
+          </div>
+
+          <div class="login-error" id="formError" style="display:none;"></div>
+          <div id="successMsg" style="display:none; background: var(--success-bg); color: var(--success); padding: 10px 12px; border-radius: 5px; font-size: 13px; margin-bottom: 14px;">Settings saved successfully.</div>
+
+          <button type="submit" class="btn btn-primary" id="saveBtn">Save Settings</button>
+        </form>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<script src="supabase-config.js"></script>
+<script src="auth-guard.js"></script>
+<script src="nav.js"></script>
+<script>
+
+  async function loadSettings() {
+    const { data, error } = await supabaseClient
+      .from("company_settings")
+      .select("*")
+      .eq("id", 1)
+      .single();
+
+    if (error) {
+      document.getElementById("formError").textContent = "Could not load settings: " + error.message;
+      document.getElementById("formError").style.display = "block";
+      return;
+    }
+
+    document.getElementById("companyName").value = data.company_name || "";
+    document.getElementById("tagline").value = data.tagline || "";
+    document.getElementById("tpin").value = data.tpin || "";
+    document.getElementById("email").value = data.email || "";
+    document.getElementById("phoneNumbers").value = data.phone_numbers || "";
+    document.getElementById("address").value = data.address || "";
+    document.getElementById("defaultVatRate").value = data.default_vat_rate || 16.00;
+    document.getElementById("defaultPaymentTerms").value = data.default_payment_terms || "";
+    document.getElementById("logoUrl").value = data.logo_url || "";
+  }
+
+  document.getElementById("settingsForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const formError = document.getElementById("formError");
+    const successMsg = document.getElementById("successMsg");
+    formError.style.display = "none";
+    successMsg.style.display = "none";
+
+    const saveBtn = document.getElementById("saveBtn");
+    saveBtn.disabled = true;
+    saveBtn.textContent = "Saving...";
+
+    const { error } = await supabaseClient
+      .from("company_settings")
+      .update({
+        company_name: document.getElementById("companyName").value.trim(),
+        tagline: document.getElementById("tagline").value.trim() || null,
+        tpin: document.getElementById("tpin").value.trim() || null,
+        email: document.getElementById("email").value.trim() || null,
+        phone_numbers: document.getElementById("phoneNumbers").value.trim() || null,
+        address: document.getElementById("address").value.trim() || null,
+        default_vat_rate: parseFloat(document.getElementById("defaultVatRate").value) || 16.00,
+        default_payment_terms: document.getElementById("defaultPaymentTerms").value.trim() || null,
+        logo_url: document.getElementById("logoUrl").value.trim() || null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", 1);
+
+    saveBtn.disabled = false;
+    saveBtn.textContent = "Save Settings";
+
+    if (error) {
+      formError.textContent = error.message;
+      formError.style.display = "block";
+      return;
+    }
+
+    successMsg.style.display = "block";
+  });
+
+  // ----------------------------------------------------------------------
+  // Page init
+  // ----------------------------------------------------------------------
+  (async () => {
+    const profile = await requireAuth();
+    if (!profile) return;
+    if (!guardRole(profile, [])) return; // admin-only: roleCan() returns true for admin regardless of this empty list
+
+    renderSidebar(profile);
+    renderUserChrome(profile);
+
+    loadSettings();
+  })();
+
+</script>
+</body>
+</html>

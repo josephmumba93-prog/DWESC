@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Users &amp; Roles — DW Engineering IPSS</title>
+<link rel="stylesheet" href="style.css" />
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+<div class="app-shell">
+
+  <nav class="sidebar">
+    <div class="sidebar-brand">
+      <img src="dw-logo.png" alt="DW Engineering" />
+      <div class="sidebar-brand-text">DW ENGINEERING<br/>SOLUTION &amp; CONTRACTORS</div>
+    </div>
+    <div class="sidebar-nav" id="sidebarNav"></div>
+    <div class="sidebar-footer">DW Engineering IPSS<br/>v1.0 &middot; Internal Use Only</div>
+  </nav>
+
+  <div class="main-area">
+    <header class="topbar">
+      <div class="topbar-title">Users &amp; Roles</div>
+      <div class="topbar-user">
+        <span class="role-badge" id="roleBadge"></span>
+        <span class="user-name" id="userName"></span>
+        <button class="btn-link" id="signOutBtn">Sign out</button>
+      </div>
+    </header>
+
+    <main class="content">
+
+      <h1 class="section-title">Users &amp; Roles</h1>
+      <p class="section-subtitle">Manage role assignments for existing staff accounts.</p>
+
+      <div class="card" style="background: var(--info-bg); border-color: var(--info); margin: 18px 0; padding: 14px 16px;">
+        <span style="font-size:12.5px; color: var(--navy);">
+          <strong>To create a brand-new login:</strong> go to your Supabase project → Authentication → Users → Add User first.
+          Once that's done, come back here to assign them a role — new logins won't appear below until they have a role assigned.
+        </span>
+      </div>
+
+      <div class="card" style="padding: 0;">
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Role</th>
+              <th>Phone</th>
+              <th>Status</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="usersTableBody">
+            <tr><td colspan="5" class="empty-state">Loading users…</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<!-- ============================== EDIT USER MODAL ============================== -->
+<div class="modal-overlay" id="editUserModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h2 id="modalTitle">Edit User</h2>
+      <button class="modal-close" id="closeModalBtn">&times;</button>
+    </div>
+    <form id="userForm">
+      <div class="modal-body">
+        <input type="hidden" id="userId" />
+
+        <div class="field">
+          <label for="fullName">Full Name *</label>
+          <input type="text" id="fullName" required />
+        </div>
+
+        <div class="field">
+          <label for="userRole">Role *</label>
+          <select id="userRole" required>
+            <option value="admin">Administrator</option>
+            <option value="finance">Finance</option>
+            <option value="procurement">Procurement</option>
+            <option value="sales">Sales</option>
+            <option value="store">Store / Inventory</option>
+            <option value="technician">Service Technician</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="userPhone">Phone</label>
+          <input type="text" id="userPhone" />
+        </div>
+
+        <div class="field">
+          <label style="display:flex; align-items:center; gap:8px; font-weight:500;">
+            <input type="checkbox" id="userActive" style="width:auto;" checked />
+            Active (uncheck to disable their login without deleting it)
+          </label>
+        </div>
+
+        <div class="login-error" id="formError" style="display:none;"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" id="cancelModalBtn">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="saveBtn">Save Changes</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="supabase-config.js"></script>
+<script src="auth-guard.js"></script>
+<script src="nav.js"></script>
+<script>
+
+  let allUsers = [];
+  let currentUserId = null; // the logged-in admin's own id, to prevent self-lockout
+
+  const roleLabel = {
+    admin: "Administrator",
+    finance: "Finance",
+    procurement: "Procurement",
+    sales: "Sales",
+    store: "Store / Inventory",
+    technician: "Service Technician",
+  };
+
+  async function loadUsers() {
+    const { data, error } = await supabaseClient
+      .from("profiles")
+      .select("*")
+      .order("full_name");
+
+    if (error) {
+      console.error("Error loading users:", error);
+      document.getElementById("usersTableBody").innerHTML =
+        `<tr><td colspan="5" class="empty-state">Could not load users. ${error.message}</td></tr>`;
+      return;
+    }
+
+    allUsers = data || [];
+    renderTable();
+  }
+
+  function renderTable() {
+    const body = document.getElementById("usersTableBody");
+    if (allUsers.length === 0) {
+      body.innerHTML = `<tr><td colspan="5" class="empty-state">No users found.</td></tr>`;
+      return;
+    }
+
+    body.innerHTML = allUsers
+      .map((u) => `
+        <tr>
+          <td><strong>${u.full_name}</strong>${u.id === currentUserId ? ' <span class="text-faint">(you)</span>' : ""}</td>
+          <td>${roleLabel[u.role] || u.role}</td>
+          <td>${u.phone || "—"}</td>
+          <td>${u.active
+              ? `<span class="badge badge-success">Active</span>`
+              : `<span class="badge badge-danger">Inactive</span>`}</td>
+          <td class="text-right"><button class="icon-btn" onclick="openEditModal('${u.id}')">Edit</button></td>
+        </tr>`)
+      .join("");
+  }
+
+  function openEditModal(userId) {
+    const u = allUsers.find((x) => x.id === userId);
+    if (!u) return;
+
+    document.getElementById("userId").value = u.id;
+    document.getElementById("fullName").value = u.full_name || "";
+    document.getElementById("userRole").value = u.role;
+    document.getElementById("userPhone").value = u.phone || "";
+    document.getElementById("userActive").checked = u.active;
+    document.getElementById("modalTitle").textContent = `Edit User — ${u.full_name}`;
+    document.getElementById("formError").style.display = "none";
+
+    // Prevent an admin from deactivating or demoting their own only-admin
+    // account by accident, which would lock everyone out of admin access.
+    const otherAdmins = allUsers.filter((x) => x.role === "admin" && x.id !== u.id && x.active);
+    const isLastActiveAdmin = u.role === "admin" && u.active && otherAdmins.length === 0;
+    const roleSelect = document.getElementById("userRole");
+    const activeCheckbox = document.getElementById("userActive");
+    if (isLastActiveAdmin) {
+      roleSelect.disabled = true;
+      activeCheckbox.disabled = true;
+      document.getElementById("formError").textContent =
+        "This is the only active administrator account, so its role and active status can't be changed here. Promote another user to admin first if you need to change this one.";
+      document.getElementById("formError").style.display = "block";
+    } else {
+      roleSelect.disabled = false;
+      activeCheckbox.disabled = false;
+    }
+
+    document.getElementById("editUserModal").classList.add("open");
+  }
+
+  function closeModal() {
+    document.getElementById("editUserModal").classList.remove("open");
+  }
+  document.getElementById("closeModalBtn").addEventListener("click", closeModal);
+  document.getElementById("cancelModalBtn").addEventListener("click", closeModal);
+  document.getElementById("editUserModal").addEventListener("click", (e) => {
+    if (e.target.id === "editUserModal") closeModal();
+  });
+
+  document.getElementById("userForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const formError = document.getElementById("formError");
+
+    const userId = document.getElementById("userId").value;
+    const payload = {
+      full_name: document.getElementById("fullName").value.trim(),
+      role: document.getElementById("userRole").value,
+      phone: document.getElementById("userPhone").value.trim() || null,
+      active: document.getElementById("userActive").checked,
+    };
+
+    const saveBtn = document.getElementById("saveBtn");
+    saveBtn.disabled = true;
+    saveBtn.textContent = "Saving...";
+
+    const { error } = await supabaseClient.from("profiles").update(payload).eq("id", userId);
+
+    saveBtn.disabled = false;
+    saveBtn.textContent = "Save Changes";
+
+    if (error) {
+      formError.textContent = error.message;
+      formError.style.display = "block";
+      return;
+    }
+
+    closeModal();
+    loadUsers();
+  });
+
+  // ----------------------------------------------------------------------
+  // Page init
+  // ----------------------------------------------------------------------
+  (async () => {
+    const profile = await requireAuth();
+    if (!profile) return;
+    if (!guardRole(profile, [])) return; // admin-only
+
+    currentUserId = profile.id;
+    renderSidebar(profile);
+    renderUserChrome(profile);
+
+    loadUsers();
+  })();
+
+</script>
+</body>
+</html>

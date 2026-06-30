@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Payments — DW Engineering IPSS</title>
+<link rel="stylesheet" href="style.css" />
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+<div class="app-shell">
+
+  <nav class="sidebar">
+    <div class="sidebar-brand">
+      <img src="dw-logo.png" alt="DW Engineering" />
+      <div class="sidebar-brand-text">DW ENGINEERING<br/>SOLUTION &amp; CONTRACTORS</div>
+    </div>
+    <div class="sidebar-nav" id="sidebarNav"></div>
+    <div class="sidebar-footer">DW Engineering IPSS<br/>v1.0 &middot; Internal Use Only</div>
+  </nav>
+
+  <div class="main-area">
+    <header class="topbar">
+      <div class="topbar-title">Payments</div>
+      <div class="topbar-user">
+        <span class="role-badge" id="roleBadge"></span>
+        <span class="user-name" id="userName"></span>
+        <button class="btn-link" id="signOutBtn">Sign out</button>
+      </div>
+    </header>
+
+    <main class="content">
+
+      <h1 class="section-title">Payments</h1>
+      <p class="section-subtitle">Every payment received across all invoices. To record a new payment, open the relevant invoice and use "Record Payment" there.</p>
+
+      <div class="grid grid-3" style="margin: 20px 0;">
+        <div class="stat-card">
+          <div class="stat-label">Total Collected</div>
+          <div class="stat-value" id="statTotalCollected">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Payments Recorded</div>
+          <div class="stat-value" id="statCount">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">This Month</div>
+          <div class="stat-value" id="statThisMonth">—</div>
+        </div>
+      </div>
+
+      <div class="date-filter-bar" style="display:flex; align-items:end; gap:12px; margin-bottom:18px; flex-wrap:wrap;">
+        <div class="field" style="margin-bottom:0;">
+          <label for="dateFrom">From</label>
+          <input type="date" id="dateFrom" style="width:auto;" />
+        </div>
+        <div class="field" style="margin-bottom:0;">
+          <label for="dateTo">To</label>
+          <input type="date" id="dateTo" style="width:auto;" />
+        </div>
+        <div class="field" style="margin-bottom:0;">
+          <label for="methodFilter">Method</label>
+          <select id="methodFilter" style="width:auto;">
+            <option value="">All methods</option>
+            <option value="cash">Cash</option>
+            <option value="bank_transfer">Bank Transfer</option>
+            <option value="mobile_money">Mobile Money</option>
+            <option value="cheque">Cheque</option>
+            <option value="card">Card</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <button class="btn btn-secondary btn-sm" id="applyFilterBtn">Apply</button>
+        <button class="btn btn-secondary btn-sm" id="clearFilterBtn">Clear</button>
+      </div>
+
+      <div class="card" style="padding: 0;">
+        <table>
+          <thead>
+            <tr>
+              <th>Payment #</th>
+              <th>Invoice #</th>
+              <th>Customer</th>
+              <th>Date</th>
+              <th>Method</th>
+              <th>Reference</th>
+              <th class="text-right">Amount</th>
+            </tr>
+          </thead>
+          <tbody id="paymentsTableBody">
+            <tr><td colspan="7" class="empty-state">Loading payments…</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<script src="supabase-config.js"></script>
+<script src="auth-guard.js"></script>
+<script src="nav.js"></script>
+<script>
+
+  let allPayments = [];
+
+  const methodLabel = {
+    cash: "Cash",
+    bank_transfer: "Bank Transfer",
+    mobile_money: "Mobile Money",
+    cheque: "Cheque",
+    card: "Card",
+    other: "Other",
+  };
+
+  async function loadPayments() {
+    const { data, error } = await supabaseClient
+      .from("payments")
+      .select("*, invoices(invoice_number, customers(name))")
+      .order("payment_date", { ascending: false });
+
+    if (error) {
+      console.error("Error loading payments:", error);
+      document.getElementById("paymentsTableBody").innerHTML =
+        `<tr><td colspan="7" class="empty-state">Could not load payments. ${error.message}</td></tr>`;
+      return;
+    }
+
+    allPayments = data || [];
+    updateStats();
+    applyFilters();
+  }
+
+  function updateStats() {
+    const total = allPayments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
+
+    const now = new Date();
+    const thisMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+    const thisMonthTotal = allPayments
+      .filter((p) => p.payment_date && p.payment_date.startsWith(thisMonthKey))
+      .reduce((sum, p) => sum + Number(p.amount || 0), 0);
+
+    document.getElementById("statTotalCollected").textContent =
+      "ZMW " + total.toLocaleString("en-ZM", { minimumFractionDigits: 2 });
+    document.getElementById("statCount").textContent = allPayments.length.toLocaleString();
+    document.getElementById("statThisMonth").textContent =
+      "ZMW " + thisMonthTotal.toLocaleString("en-ZM", { minimumFractionDigits: 2 });
+  }
+
+  function renderTable(payments) {
+    const body = document.getElementById("paymentsTableBody");
+
+    if (payments.length === 0) {
+      body.innerHTML = `<tr><td colspan="7" class="empty-state">No payments found for this period.</td></tr>`;
+      return;
+    }
+
+    body.innerHTML = payments
+      .map((p) => {
+        const inv = p.invoices;
+        return `
+        <tr>
+          <td class="font-mono">${p.payment_number}</td>
+          <td>${inv ? inv.invoice_number : "—"}</td>
+          <td>${inv && inv.customers ? inv.customers.name : "—"}</td>
+          <td>${p.payment_date}</td>
+          <td>${methodLabel[p.payment_method] || p.payment_method}</td>
+          <td>${p.reference_number || "—"}</td>
+          <td class="text-right">ZMW ${Number(p.amount).toLocaleString("en-ZM", { minimumFractionDigits: 2 })}</td>
+        </tr>`;
+      })
+      .join("");
+  }
+
+  function applyFilters() {
+    const from = document.getElementById("dateFrom").value;
+    const to = document.getElementById("dateTo").value;
+    const method = document.getElementById("methodFilter").value;
+
+    let filtered = allPayments;
+    if (from) filtered = filtered.filter((p) => p.payment_date >= from);
+    if (to) filtered = filtered.filter((p) => p.payment_date <= to);
+    if (method) filtered = filtered.filter((p) => p.payment_method === method);
+
+    renderTable(filtered);
+  }
+
+  document.getElementById("applyFilterBtn").addEventListener("click", applyFilters);
+  document.getElementById("clearFilterBtn").addEventListener("click", () => {
+    document.getElementById("dateFrom").value = "";
+    document.getElementById("dateTo").value = "";
+    document.getElementById("methodFilter").value = "";
+    applyFilters();
+  });
+
+  // ----------------------------------------------------------------------
+  // Page init
+  // ----------------------------------------------------------------------
+  (async () => {
+    const profile = await requireAuth();
+    if (!profile) return;
+    if (!guardRole(profile, ["finance"])) return;
+
+    renderSidebar(profile);
+    renderUserChrome(profile);
+
+    loadPayments();
+  })();
+
+</script>
+</body>
+</html>
